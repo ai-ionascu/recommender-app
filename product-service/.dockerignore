@@ -1,8 +1,1 @@
 node_modules
-.git
-.env
-Dockerfile
-.dockerignore
-*.md
-*.sql
-test/

@@ -4,9 +4,9 @@ services:
     image: postgres:15
     env_file: .env
     environment:
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${PG_USER}
+      POSTGRES_PASSWORD: ${PG_PASSWORD}
+      POSTGRES_DB: ${PG_DB}
     networks:
       - wine-store-network
     ports:
@@ -14,7 +14,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      test: ["CMD-SHELL", "pg_isready -U ${PG_USER} -d ${PG_DB}"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -75,6 +75,8 @@ services:
   product-service:
     build: ./product-service
     env_file: .env
+    environment:
+      - NODE_ENV=production
     ports:
       - "3001:3000"
     depends_on:

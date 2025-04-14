@@ -8,3 +8,6 @@ venv/
 docker-compose.override.yml
 .vscode/
 .idea/
+arbore_foldere.txt
+.gitignore
+.dockerignore
