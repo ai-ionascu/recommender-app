@@ -35,6 +35,6 @@ export async function runMigration() {
 
   } finally {
     client.release();
-    await pool.end();
+    console.log('Connection released');
   }
 }

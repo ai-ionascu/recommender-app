@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS products (
   country VARCHAR(100) NOT NULL,
   region VARCHAR(100),
   description TEXT,
-  short_description VARCHAR(300),
+  highlight VARCHAR(300),
   stock INT NOT NULL DEFAULT 0 CHECK (stock >= 0),
   alcohol_content DECIMAL(4,2),
   volume_ml INT CHECK (volume_ml > 0),
@@ -32,9 +32,7 @@ CREATE TABLE IF NOT EXISTS wines (
   grape_variety VARCHAR(100) NOT NULL,
   vintage SMALLINT CHECK (vintage BETWEEN 1900 AND EXTRACT(YEAR FROM NOW()) + 2),
   appellation VARCHAR(100), -- DOC, AOC etc.
-  aging_process VARCHAR(100),
-  serving_temperature VARCHAR(50),
-  closure_type VARCHAR(50) CHECK (closure_type IN ('cork', 'screwcap', 'glass'))
+  serving_temperature VARCHAR(50)
 );
 
 CREATE TABLE IF NOT EXISTS spirits (
@@ -51,7 +49,6 @@ CREATE TABLE IF NOT EXISTS beers (
   ibu SMALLINT CHECK (ibu BETWEEN 0 AND 100),
   fermentation_type VARCHAR(50),
   brewery VARCHAR(100) NOT NULL,
-  awards TEXT[]
 );
 
 CREATE TABLE IF NOT EXISTS accessories (

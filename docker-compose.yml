@@ -85,6 +85,15 @@ services:
     networks:
       - wine-store-network
 
+  frontend:
+    build: ./frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - product-service
+    networks:
+      - wine-store-network
+
 volumes:
   postgres_data:
   mongodb_data:
