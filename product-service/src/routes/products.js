@@ -2,9 +2,34 @@ import express from 'express';
 import { pool } from '../db/db.js';
 import slugify from 'slugify';
 
-const router = express.Router();
+import multer from 'multer';
+import { v2 as cloudinary } from 'cloudinary';
+import dotenv from 'dotenv';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import axios from 'axios';
 
-// Create product
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+
+if (process.env.NODE_ENV !== 'production') {
+  const envPath = path.join(__dirname, '../../../.env');
+  dotenv.config({ path: envPath });
+}
+
+const UNSPLASH_ACCESS_KEY = process.env.UNSPLASH_ACCESS_KEY;
+const PEXELS_API_KEY = process.env.PEXELS_API_KEY;
+
+const router = express.Router();
+const upload = multer({ storage: multer.memoryStorage() });
+
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET
+});
+
 router.post('/', async (req, res) => {
   try {
     const client = await pool.connect();
@@ -13,6 +38,7 @@ router.post('/', async (req, res) => {
       
       const slug = slugify(req.body.name, { lower: true, strict: true });
       
+      // Creare produs principal
       const productQuery = `INSERT INTO products (
                             name, slug, price, category, country, region, 
                             description, highlight, stock, 
@@ -38,6 +64,7 @@ router.post('/', async (req, res) => {
       const productResult = await client.query(productQuery, productValues);
       const newProduct = productResult.rows[0];
       
+      // Creare sub-tip produs
       let subTypeQuery;
       switch(newProduct.category) {
         case 'wine':
@@ -56,11 +83,94 @@ router.post('/', async (req, res) => {
           ]);
           break;
           
-        // to fill for the other product types
+        case 'spirit':
+          subTypeQuery = `INSERT INTO spirits (
+                          product_id, spirit_type, age_statement, 
+                          distillation_year, cask_type)
+                          VALUES ($1, $2, $3, $4, $5)
+                          RETURNING *`;
+          await client.query(subTypeQuery, [
+            newProduct.id,
+            req.body.spirit_type,
+            req.body.age_statement,
+            req.body.distillation_year,
+            req.body.cask_type
+          ]);
+          break;
+          
+        case 'beer':
+          subTypeQuery = `INSERT INTO beers (
+                          product_id, style, ibu, 
+                          fermentation_type, brewery)
+                          VALUES ($1, $2, $3, $4, $5)
+                          RETURNING *`;
+          await client.query(subTypeQuery, [
+            newProduct.id,
+            req.body.style,
+            req.body.ibu,
+            req.body.fermentation_type,
+            req.body.brewery
+          ]);
+          break;
+          
+        case 'accessory':
+          subTypeQuery = `INSERT INTO accessories (
+                          product_id, accessory_type, material, 
+                          compatible_with_product_type)
+                          VALUES ($1, $2, $3, $4)
+                          RETURNING *`;
+          await client.query(subTypeQuery, [
+            newProduct.id,
+            req.body.accessory_type,
+            req.body.material,
+            req.body.compatible_with_product_type
+          ]);
+          break;
+          
+        default:
+          throw new Error('Categorie produs invalidă');
+      }
+
+      // Salvare imagini
+      if(req.body.images && req.body.images.length > 0) {
+        await Promise.all(req.body.images.map(async (img, index) => {
+          await client.query(
+            `INSERT INTO product_images (
+              product_id, url, alt_text, is_main
+            ) VALUES ($1, $2, $3, $4)`,
+            [
+              newProduct.id,
+              img.url,
+              img.alt_text || `Imagine ${newProduct.name}`,
+              index === 0 // Prima imagine este cea principală
+            ]
+          );
+        }));
+      }
+
+      // Salvare caracteristici
+      if(req.body.features && req.body.features.length > 0) {
+        await Promise.all(req.body.features.map(async feature => {
+          await client.query(
+            `INSERT INTO product_features (
+              product_id, key, value
+            ) VALUES ($1, $2, $3)`,
+            [
+              newProduct.id,
+              feature.key,
+              feature.value
+            ]
+          );
+        }));
       }
       
       await client.query('COMMIT');
-      res.status(201).json(newProduct);
+      res.status(201).json({
+        ...newProduct,
+        images: req.body.images || [],
+        features: req.body.features || []
+      });
+      
     } finally {
       client.release();
     }
@@ -196,6 +306,48 @@ router.delete('/:id', async (req, res) => {
     res.status(204).end();
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// Proxy endpoint Unsplash + Pexels API
+router.get('/images/search', async (req, res) => {
+  const { query, per_page = 30, page = 1 } = req.query;
+
+  try {
+    // Try Unsplash
+    const unsplashRes = await axios.get('https://api.unsplash.com/search/photos', {
+      params: { query, per_page, page },
+      headers: { Authorization: `Client-ID ${UNSPLASH_ACCESS_KEY}` }
+    });
+
+    if (unsplashRes.data.results && unsplashRes.data.results.length > 0) {
+      const images = unsplashRes.data.results.map(img => ({
+        url: img.urls.regular,
+        alt_text: img.alt_description || 'Image'
+      }));
+      return res.json(images);
+    }
+
+    // Fallback Pexels
+    const pexelsRes = await axios.get('https://api.pexels.com/v1/search', {
+      params: { query, per_page, page },
+      headers: { Authorization: PEXELS_API_KEY }
+    });
+
+    if (pexelsRes.data.photos && pexelsRes.data.photos.length > 0) {
+      const images = pexelsRes.data.photos.map(img => ({
+        url: img.src.large,
+        alt_text: img.alt || 'Image'
+      }));
+      return res.json(images);
+    }
+
+    // No images found in both APIs
+    return res.status(404).json({ message: 'No images found.' });
+
+  } catch (error) {
+    console.error('Error fetching images:', error.message);
+    return res.status(500).json({ message: 'Image fetch failed.' });
   }
 });
 

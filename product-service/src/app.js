@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import { runMigration } from './db/migrations/001-initial-schema.js';
 
+import { pool } from './db/db.js';
 import productRoutes from './routes/products.js';
 
 const app = express();
@@ -16,20 +17,29 @@ await runMigration();
 
 app.use('/products', productRoutes);
 
-// Rute de verificare
-app.get('/health', (req, res) => {
-  res.status(200).json({ 
-    status: 'OK',
-    db_connection: 'active'
-  });
+// Middleware for logging requests
+app.use((req, res, next) => {
+  console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
+  next();
 });
 
-app.get('/version', (req, res) => {
-  res.json({
-    service: 'Product Service',
-    version: '1.0.0',
-    environment: process.env.NODE_ENV
-  });
+// Health check route
+app.get('/health', async (req, res) => {
+  try {
+    await pool.query('SELECT 1');
+    console.log('Health check successful');
+    res.status(200).json({
+      status: "OK",
+      database: "connected"
+    });
+  } catch (err) {
+    console.error('Health check failed:', err);
+    res.status(500).json({
+      status: "ERROR",
+      database: "disconnected",
+      error: err.message
+    });
+  }
 });
 
 app.listen(process.env.PRODUCT_SERVICE_PORT, '0.0.0.0', () => {

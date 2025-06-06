@@ -14,10 +14,11 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${PG_USER} -d ${PG_DB}"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
+      test: ["CMD-SHELL", "pg_isready -U ${PG_USER} -d ${PG_DB} -t 30"]
+      interval: 3s
+      timeout: 30s
+      retries: 10
+      start_period: 15s
 
   mongodb:
     image: mongo:6
@@ -79,20 +80,45 @@ services:
       - NODE_ENV=production
     ports:
       - "3001:3000"
+    command: >
+      sh -c "
+      echo 'Waiting...';
+      while ! psql postgresql://${PG_USER}:${PG_PASSWORD}@postgres:5432/${PG_DB} -c 'SELECT 1' >/dev/null 2>&1; do
+        sleep 5;
+      done;
+      echo 'Executing migrations...';
+      node src/db/migrations/001-initial-schema.js;
+      echo 'Starting product service...';
+      node src/app.js
+      "
     depends_on:
       postgres:
         condition: service_healthy
     networks:
       - wine-store-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   frontend:
-    build: ./frontend
+    build:
+      context: ./frontend
+      args:
+        - VITE_API_URL=${VITE_API_URL}
     ports:
       - "3000:80"
     depends_on:
-      - product-service
+      product-service:
+        condition: service_healthy
     networks:
       - wine-store-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
 volumes:
   postgres_data:

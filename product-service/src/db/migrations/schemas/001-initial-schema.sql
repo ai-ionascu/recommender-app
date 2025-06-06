@@ -22,8 +22,7 @@ CREATE TABLE IF NOT EXISTS product_images (
   product_id INT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
   url VARCHAR(500) NOT NULL,
   alt_text VARCHAR(150),
-  is_main BOOLEAN NOT NULL DEFAULT false,
-  image_type VARCHAR(20) CHECK (image_type IN ('bottle', 'label', 'package'))
+  is_main BOOLEAN NOT NULL DEFAULT false
 );
 
 CREATE TABLE IF NOT EXISTS wines (
@@ -37,7 +36,7 @@ CREATE TABLE IF NOT EXISTS wines (
 
 CREATE TABLE IF NOT EXISTS spirits (
   product_id INT PRIMARY KEY REFERENCES products(id) ON DELETE CASCADE,
-  spirit_type VARCHAR(50) NOT NULL CHECK (spirit_type IN ('whiskey', 'vodka', 'gin', 'rum', 'tequila', 'brandy')),
+  spirit_type VARCHAR(50) NOT NULL CHECK (spirit_type IN ('whiskey', 'vodka', 'gin', 'rhum', 'tequila', 'brandy')),
   age_statement VARCHAR(50),
   distillation_year SMALLINT,
   cask_type VARCHAR(100)
@@ -48,7 +47,7 @@ CREATE TABLE IF NOT EXISTS beers (
   style VARCHAR(50) NOT NULL CHECK (style IN ('lager', 'ipa', 'stout', 'pilsner', 'wheat')),
   ibu SMALLINT CHECK (ibu BETWEEN 0 AND 100),
   fermentation_type VARCHAR(50),
-  brewery VARCHAR(100) NOT NULL,
+  brewery VARCHAR(100) NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS accessories (

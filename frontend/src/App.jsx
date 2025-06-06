@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import axios from 'axios'
+import ImageUploader from './components/ImageUploader';
 
 const API_URL = process.env.NODE_ENV === 'production' 
   ? "http://localhost:3000/api/products" 
@@ -29,7 +30,7 @@ function App() {
     serving_temperature: '16',
 
     // Spirits
-    spirit_type: 'whisky',
+    spirit_type: 'whiskey',
     age_statement: '',
     distillation_year: '',
     cask_type: '',
@@ -51,6 +52,11 @@ function App() {
 
   const [editingId, setEditingId] = useState(null);
   const [showEditForm, setShowEditForm] = useState(false);
+  const [productImages, setProductImages] = useState([]);
+  const [generationError, setGenerationError] = useState(null);
+  const [uploadError, setUploadError] = useState(null);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
 
   useEffect(() => {
     const fetchProducts = async () => {
@@ -92,6 +98,9 @@ function App() {
             volume_ml: undefined
           })
         };
+        if (productImages.length > 0) {
+          payload.images = productImages;
+        }
         response = await axios.post(API_URL, payload);
         setSuccessMessage('Produsul a fost adăugat cu succes!');
       }
@@ -213,7 +222,7 @@ function App() {
       serving_temperature: '16'
     }),
     ...(category === 'spirits' && {
-      spirit_type: 'whisky',
+      spirit_type: 'whiskey',
       age_statement: '',
       distillation_year: '',
       cask_type: ''
@@ -310,9 +319,9 @@ function App() {
                 onChange={e => setFormData({...formData, spirit_type: e.target.value})}
                 className="p-2 border rounded"
               >
-                <option value="whisky">Whisky</option>
+                <option value="whiskey">Whiskey</option>
                 <option value="vodka">Vodka</option>
-                <option value="rum">Rum</option>
+                <option value="rhum">rhum</option>
                 <option value="gin">Gin</option>
                 <option value="tequila">Tequila</option>
               </select>
@@ -401,9 +410,8 @@ function App() {
                 <option value="">Select Type</option>
                 <option value="opener">Opener</option>
                 <option value="glassware">Glassware</option>
-                <option value="decantor">Decanter</option>
-                <option value="cooler">Cooler</option>
-                <option value="kit">Accessory Kit</option>
+                <option value="decanter">Decanter</option>
+                <option value="gift_set">Gift Set</option>
               </select>
               <input
                 type="text"
@@ -573,6 +581,27 @@ function App() {
               Mark as Featured Product
             </label>
           </div>
+
+          {/* Image Upload */}
+          <div className="col-span-2 mt-4">
+            <ImageUploader 
+              productId={editingId}
+              formData={formData}
+              productImages={productImages}
+              onImagesUpdate={setProductImages}
+            />
+            {generationError && (
+              <div className="mt-2 p-2 bg-red-100 text-red-800 rounded">
+                Eroare generare: {generationError}
+              </div>
+            )}
+
+            {uploadError && (
+              <div className="mt-2 p-2 bg-red-100 text-red-800 rounded">
+                Eroare upload: {uploadError}
+              </div>
+            )}
+          </div> 
         </div>
 
         <div className="flex gap-2">
