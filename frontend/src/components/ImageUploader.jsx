@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
+import PropTypes from 'prop-types';
 
 const VITE_API_URL = import.meta.env.VITE_API_URL;
 
@@ -15,6 +16,9 @@ const ImageUploader = ({ productId, formData, productImages, onImagesUpdate }) =
   const [imageBatch, setImageBatch] = useState([]);
   // Store current category for comparison
   const lastCategoryRef = useRef('');
+
+  const canAddImage = !productImages.length;
+  const canShowAddButton = !!tempDummyImage && !productImages.length;
 
   // Map category & accessory_type to search term strings
   const searchTerms = {
@@ -94,8 +98,7 @@ const ImageUploader = ({ productId, formData, productImages, onImagesUpdate }) =
       setTempDummyImage(null);
       setGenerationError(null);
     }
-  }, [formData.category, formData.spirit_type, formData.accessory_type, formData.compatible_with_product_type]);
-
+  }, [formData]);
 
   const fetchNewBatch = async (query) => {
     const perPage = 50;
@@ -149,15 +152,55 @@ const ImageUploader = ({ productId, formData, productImages, onImagesUpdate }) =
     }
   };
 
-  const handleAddDummyImage = () => {
-    if (tempDummyImage) {
-      onImagesUpdate([...productImages, tempDummyImage]);
+  const handleAddDummyImage = async () => {
+    if (!productId && tempDummyImage) {
+      onImagesUpdate([tempDummyImage]);
+      return;
+    }
+    if (!tempDummyImage) return;
+    if (productId && tempDummyImage) {
+      try {
+        await axios.post(`${VITE_API_URL}/products/${productId}/images`, {
+          url: tempDummyImage.url,
+          alt_text: tempDummyImage.alt_text
+        });
+
+        onImagesUpdate([...productImages, tempDummyImage]);
+        await generateDummyImage();
+      } catch (error) {
+        console.error('Error adding dummy image:', error);
+        alert("Eroare la adăugarea imaginii!");
+      }
+    }
+  };
+
+  const handleDeleteImage = (imageUrl) => {
+    const updatedImages = productImages.filter(img => img.url !== imageUrl);
+    onImagesUpdate(updatedImages);
+
+    // Delete the temp dummy image if it matches the one being removed
+    if (tempDummyImage && tempDummyImage.url === imageUrl) {
       setTempDummyImage(null);
     }
   };
 
+
   const handleFileUpload = async () => {
     if (!selectedFile) return;
+    if (!productId) {
+      // If no productId, treat as a new image upload
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        onImagesUpdate([{
+          data_url: reader.result,
+          alt_text: selectedFile.name,
+          rawFile: selectedFile
+        }]);
+        setSelectedFile(null);
+      };
+      reader.readAsDataURL(selectedFile);
+      return;
+    }
 
     try {
       setIsUploading(true);
@@ -185,25 +228,44 @@ const ImageUploader = ({ productId, formData, productImages, onImagesUpdate }) =
     }
   };
 
+  const handleSetMainImage = async (image) => {
+    try {
+      await axios.put(`${VITE_API_URL}/products/${productId}/images/set-main`, {
+        imageUrl: image.url,
+      });
+      
+      // Update the productImages state to reflect the main image change
+      const updatedImages = productImages.map(img => ({
+        ...img,
+        is_main: img.url === image.url
+      }));
+
+      onImagesUpdate(updatedImages);
+    } catch (error) {
+      console.error('Failed to set main image', error);
+    }
+  };
+
   return (
     <div className="image-uploader-container">
       <div className="controls">
         <input 
           type="file"
           onChange={(e) => setSelectedFile(e.target.files[0])}
+          disabled={!canAddImage}
         />
         
-        <button onClick={generateDummyImage} disabled={isGenerating}>
+        <button onClick={generateDummyImage} disabled={isGenerating || !canAddImage}>
           {isGenerating ? 'Generating...' : 'Generate Dummy'}
         </button>
         
-        {tempDummyImage && (
+        {canShowAddButton && (
           <button onClick={handleAddDummyImage}>
             Add to Product
           </button>
         )}
-        
-        {selectedFile && (
+
+        {selectedFile && canAddImage && (
           <button onClick={handleFileUpload} disabled={isUploading}>
             {isUploading ? 'Uploading...' : 'Upload File'}
           </button>
@@ -219,11 +281,48 @@ const ImageUploader = ({ productId, formData, productImages, onImagesUpdate }) =
           />
         </div>
       )}
+
+      {productImages.length > 0 && (
+        <div className="image-list" style={{ marginTop: '1rem' }}>
+          {productImages.map((image, idx) => (
+            <div key={idx} style={{ display: 'flex', alignItems: 'center', marginBottom: '0.5rem' }}>
+              <img
+                src={image.url}
+                alt={image.alt_text}
+                style={{ width: '100px', height: '120px', objectFit: 'cover', borderRadius: '8px', marginRight: '0.5rem' }}
+              />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+
+                {productImages.length > 1 && (
+                  <button
+                  onClick={() => handleSetMainImage(image)}
+                  disabled={image.is_main}
+                >
+                  {image.is_main ? 'Main Image ' : 'Set as Main'}
+                </button>
+                )}
+
+                <button onClick={() => handleDeleteImage(image.url)} style={{ color: 'red' }}>
+                  Remove Image
+                </button>
+
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
       
       {generationError && <p className="error">{generationError}</p>}
       {uploadError && <p className="error">{uploadError}</p>}
     </div>
   );
+};
+
+ImageUploader.propTypes = {
+  productId: PropTypes.string,
+  formData: PropTypes.object.isRequired,
+  productImages: PropTypes.array.isRequired,
+  onImagesUpdate: PropTypes.func.isRequired,
 };
 
 export default ImageUploader;

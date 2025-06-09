@@ -1,8 +1,6 @@
 import express from 'express';
 import { pool } from '../db/db.js';
 import slugify from 'slugify';
-
-import multer from 'multer';
 import { v2 as cloudinary } from 'cloudinary';
 import dotenv from 'dotenv';
 import path from 'path';
@@ -22,7 +20,6 @@ const UNSPLASH_ACCESS_KEY = process.env.UNSPLASH_ACCESS_KEY;
 const PEXELS_API_KEY = process.env.PEXELS_API_KEY;
 
 const router = express.Router();
-const upload = multer({ storage: multer.memoryStorage() });
 
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
@@ -131,24 +128,33 @@ router.post('/', async (req, res) => {
           throw new Error('Categorie produs invalidă');
       }
 
-      // Salvare imagini
-      if(req.body.images && req.body.images.length > 0) {
-        await Promise.all(req.body.images.map(async (img, index) => {
-          await client.query(
-            `INSERT INTO product_images (
-              product_id, url, alt_text, is_main
-            ) VALUES ($1, $2, $3, $4)`,
-            [
-              newProduct.id,
-              img.url,
-              img.alt_text || `Imagine ${newProduct.name}`,
-              index === 0 // Prima imagine este cea principală
-            ]
-          );
-        }));
-      }
+      // Save images to Cloudinary and database
+if (req.body.images && req.body.images.length > 0) {
+  const uploadedImages = await Promise.all(
+    req.body.images.map(async (img, index) => {
+      try {
+        const uploadResult = await cloudinary.uploader.upload(img.url, {
+          folder: 'products',
+        });
 
-      // Salvare caracteristici
+        await client.query(
+          `INSERT INTO product_images (product_id, url, alt_text, is_main)
+           VALUES ($1, $2, $3, $4)`,
+          [
+            newProduct.id,
+            uploadResult.secure_url,
+            img.alt_text || `${newProduct.name}`,
+            index === 0, // first image is main
+          ]
+        );
+      } catch (uploadErr) {
+        console.error('Cloudinary error:', uploadErr);
+      }
+    })
+  );
+}
+
+      // Save features
       if(req.body.features && req.body.features.length > 0) {
         await Promise.all(req.body.features.map(async feature => {
           await client.query(
@@ -186,19 +192,57 @@ router.get('/', async (req, res) => {
     const { category, featured } = req.query;
     let query = 'SELECT * FROM products';
     const params = [];
-    
-    if(category) {
-      query += ' WHERE category = $1';
+
+    if (category) {
       params.push(category);
-      if(featured) {
-        query += ' AND featured = $2';
-        params.push(featured === 'true');
-      }
+      query += ` WHERE category = $${params.length}`;
     }
-    
-    const { rows } = await pool.query(query, params);
-    res.json(rows);
+
+    if (featured) {
+      params.push(featured === 'true');
+      query += category ? ` AND featured = $${params.length}` : ` WHERE featured = $${params.length}`;
+    }
+
+    const { rows: products } = await pool.query(query, params);
+
+    const enrichedProducts = await Promise.all(products.map(async (product) => {
+      const [images, features] = await Promise.all([
+        pool.query('SELECT url, alt_text, is_main FROM product_images WHERE product_id = $1', [product.id]),
+        pool.query('SELECT key, value FROM product_features WHERE product_id = $1', [product.id])
+      ]);
+
+      let details = null;
+
+      switch (product.category) {
+        case 'wine':
+          details = await pool.query('SELECT * FROM wines WHERE product_id = $1', [product.id]);
+          details = details.rows[0] || null;
+          break;
+        case 'spirit':
+          details = await pool.query('SELECT * FROM spirits WHERE product_id = $1', [product.id]);
+          details = details.rows[0] || null;
+          break;
+        case 'beer':
+          details = await pool.query('SELECT * FROM beers WHERE product_id = $1', [product.id]);
+          details = details.rows[0] || null;
+          break;
+        case 'accessory':
+          details = await pool.query('SELECT * FROM accessories WHERE product_id = $1', [product.id]);
+          details = details.rows[0] || null;
+          break;
+      }
+
+      return {
+        ...product,
+        images: images.rows,
+        features: features.rows,
+        details
+      };
+    }));
+
+    res.json(enrichedProducts);
   } catch (err) {
+    console.error('Error fetching products with details:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -348,6 +392,49 @@ router.get('/images/search', async (req, res) => {
   } catch (error) {
     console.error('Error fetching images:', error.message);
     return res.status(500).json({ message: 'Image fetch failed.' });
+  }
+});
+
+// PUT /products/:productId/images/set-main
+router.put('/products/:productId/images/set-main', async (req, res) => {
+  const { url } = req.body;
+  const { productId } = req.params;
+
+  if (!url) {
+    return res.status(400).json({ error: 'Image URL is required.' });
+  }
+
+  const client = await pool.connect();
+
+  try {
+    await client.query('BEGIN');
+
+    // Reset is_main for all images
+    await client.query(
+      `UPDATE product_images SET is_main = false WHERE product_id = $1`,
+      [productId]
+    );
+
+    // Set is_main = true for the selected image
+    const result = await client.query(
+      `UPDATE product_images SET is_main = true WHERE product_id = $1 AND url = $2 RETURNING *`,
+      [productId, url]
+    );
+
+    await client.query('COMMIT');
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: 'Image not found.' });
+    }
+
+    return res.json({ message: 'Main image updated successfully.', image: result.rows[0] });
+
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('Error setting main image:', err);
+    res.status(500).json({ error: 'Failed to set main image.' });
+  } finally {
+    client.release();
   }
 });
 

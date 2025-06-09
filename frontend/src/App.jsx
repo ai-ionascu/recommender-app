@@ -625,59 +625,94 @@ function App() {
       </form>
 
       {/* Products List */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {products.map(product => (
-          <div key={product.id} className="border p-6 rounded-xl bg-white shadow-lg">
-            <div className="flex justify-between items-start mb-4">
-              <h3 className="text-xl font-bold text-gray-800">{product.name}</h3>
-              {product.featured && (
-                <span className="bg-green-100 text-green-800 px-2 py-1 rounded text-sm">
-                  Featured
-                </span>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+        {products.map(product => {
+          const mainImage = product.images?.find(img => img.is_main);
+
+          return (
+            <div
+              key={product.id}
+              className="border rounded-2xl p-4 bg-white shadow-md flex flex-col items-stretch justify-between"
+            >
+              {/* Product name */}
+              <h3 className="text-center text-lg font-bold text-gray-800 mb-3">
+                {product.name}
+              </h3>
+
+              {/* Image */}
+              {mainImage && (
+                <div className="w-full h-[280px] overflow-hidden rounded-md mb-4 flex justify-center items-center bg-gray-50">
+                  <img
+                    src={mainImage.url}
+                    alt={mainImage.alt_text || product.name}
+                    className="w-full max-h-72 object-cover object-center"
+                  />
+                </div>
               )}
+
+              {/* Details */}
+              <div className="flex-1 space-y-1 text-sm text-gray-700">
+                <p><span className="font-semibold">Price:</span> €{parseFloat(product.price).toFixed(2)}</p>
+                <p><span className="font-semibold">Category:</span> {product.category}</p>
+
+                {product.category === 'wine' && product.details && (
+                  <>
+                    <p><span className="font-semibold">Type:</span> {product.details.wine_type}</p>
+                    <p><span className="font-semibold">Grapes:</span> {product.details.grape_variety}</p>
+                    <p><span className="font-semibold">Vintage:</span> {product.details.vintage}</p>
+                    <p><span className="font-semibold">Region:</span> {product.region}, {product.country}</p>
+                  </>
+                )}
+
+                {product.category === 'spirits' && product.details && (
+                  <>
+                    <p><span className="font-semibold">Type:</span> {product.details.spirit_type}</p>
+                    <p><span className="font-semibold">Age:</span> {product.details.age_statement}</p>
+                    <p><span className="font-semibold">Cask:</span> {product.details.cask_type}</p>
+                  </>
+                )}
+
+                {product.category === 'beer' && product.details && (
+                  <>
+                    <p><span className="font-semibold">Style:</span> {product.details.style}</p>
+                    <p><span className="font-semibold">IBU:</span> {product.details.ibu}</p>
+                    <p><span className="font-semibold">Brewery:</span> {product.details.brewery}</p>
+                  </>
+                )}
+
+                {product.category === 'accessory' && product.details && (
+                  <>
+                    <p><span className="font-semibold">Type:</span> {product.details.accessory_type}</p>
+                    <p><span className="font-semibold">Material:</span> {product.details.material}</p>
+                  </>
+                )}
+
+                <p><span className="font-semibold">Stock:</span> {product.stock}</p>
+
+                {product.featured && (
+                  <p className="text-green-700 font-semibold">★ Featured</p>
+                )}
+              </div>
+
+              {/* Buttons */}
+              <div className="flex justify-between mt-4">
+                <button
+                  onClick={() => handleEdit(product.id)}
+                  className="bg-blue-500 text-white px-3 py-1 rounded text-sm hover:bg-blue-600"
+                >
+                  Edit
+                </button>
+
+                <button
+                  onClick={() => handleDelete(product.id)}
+                  className="bg-red-500 text-white px-3 py-1 rounded text-sm hover:bg-red-600"
+                >
+                  Delete
+                </button>
+              </div>
             </div>
-            
-            <div className="space-y-2 text-gray-600">
-              <p className="text-2xl font-semibold text-blue-600">
-                €{parseFloat(product.price).toFixed(2)}
-              </p>
-              <p className="capitalize"><span className="font-medium">Type:</span> {product.category}</p>
-              
-              {product.category === 'wine' && product.details && (
-                <>
-                  <p><span className="font-medium">Region:</span> {product.region}, {product.country}</p>
-                  <p><span className="font-medium">Grapes:</span> {product.details.grape_variety}</p>
-                  <p><span className="font-medium">Vintage:</span> {product.details.vintage}</p>
-                </>
-              )}
-
-              {product.category === 'spirits' && product.details && (
-                <>
-                  <p><span className="font-medium">Type:</span> {product.details.spirit_type}</p>
-                  <p><span className="font-medium">Age:</span> {product.details.age_statement}</p>
-                </>
-              )}
-
-              <p><span className="font-medium">Stock:</span> {product.stock}</p>
-            </div>
-
-            <div className="flex gap-2 mt-4">
-              <button
-                onClick={() => handleEdit(product.id)}
-                className="bg-blue-500 text-white px-3 py-1 rounded text-sm hover:bg-blue-600"
-              >
-                Edit
-              </button>
-              
-              <button
-                onClick={() => handleDelete(product.id)}
-                className="bg-red-500 text-white px-3 py-1 rounded text-sm hover:bg-red-600"
-              >
-                Delete
-              </button>
-            </div>  
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   )
