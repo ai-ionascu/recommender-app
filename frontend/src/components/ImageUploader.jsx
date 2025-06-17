@@ -17,7 +17,8 @@ const ImageUploader = ({ productId, formData, productImages, onImagesUpdate }) =
   // Store current category for comparison
   const lastCategoryRef = useRef('');
 
-  const canAddImage = !productImages.length;
+  const isEditMode = Boolean(productId);
+  const canAddImage = isEditMode ? true : productImages.length === 0;
   const canShowAddButton = !!tempDummyImage && !productImages.length;
 
   // Map category & accessory_type to search term strings
@@ -186,10 +187,13 @@ const ImageUploader = ({ productId, formData, productImages, onImagesUpdate }) =
 
 
   const handleFileUpload = async () => {
+
     if (!selectedFile) return;
+
+    const reader = new FileReader();
+
     if (!productId) {
       // If no productId, treat as a new image upload
-      const reader = new FileReader();
       reader.onloadend = () => {
         onImagesUpdate([{
           data_url: reader.result,
@@ -209,7 +213,7 @@ const ImageUploader = ({ productId, formData, productImages, onImagesUpdate }) =
       const formDataToSend = new FormData();
       formDataToSend.append('image', selectedFile);
 
-      const response = await axios.post(
+      const response = await axios.put(
         `${VITE_API_URL}/products/${productId}/images`,
         formDataToSend,
         { headers: { 'Content-Type': 'multipart/form-data' } }
@@ -217,7 +221,8 @@ const ImageUploader = ({ productId, formData, productImages, onImagesUpdate }) =
 
       onImagesUpdate([...productImages, {
         url: response.data.url,
-        alt_text: selectedFile.name
+        alt_text: selectedFile.name,
+        is_main: true
       }]);
       setSelectedFile(null);
 

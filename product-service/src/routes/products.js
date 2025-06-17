@@ -6,6 +6,7 @@ import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import axios from 'axios';
+import multer from 'multer';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -20,6 +21,8 @@ const UNSPLASH_ACCESS_KEY = process.env.UNSPLASH_ACCESS_KEY;
 const PEXELS_API_KEY = process.env.PEXELS_API_KEY;
 
 const router = express.Router();
+const storage = multer.memoryStorage();
+const upload = multer({ storage });
 
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
@@ -110,7 +113,7 @@ router.post('/', async (req, res) => {
           ]);
           break;
           
-        case 'accessory':
+        case 'accessories':
           subTypeQuery = `INSERT INTO accessories (
                           product_id, accessory_type, material, 
                           compatible_with_product_type)
@@ -226,7 +229,7 @@ router.get('/', async (req, res) => {
           details = await pool.query('SELECT * FROM beers WHERE product_id = $1', [product.id]);
           details = details.rows[0] || null;
           break;
-        case 'accessory':
+        case 'accessories':
           details = await pool.query('SELECT * FROM accessories WHERE product_id = $1', [product.id]);
           details = details.rows[0] || null;
           break;
@@ -285,63 +288,130 @@ router.get('/:id', async (req, res) => {
 
 // update products
 router.put('/:id', async (req, res) => {
+  const client = await pool.connect();
   try {
-    const client = await pool.connect();
-    try {
-      await client.query('BEGIN');
-      
-      const updateQuery = `
-        UPDATE products SET
-          name = COALESCE($1, name),
-          price = COALESCE($2, price),
-          description = COALESCE($3, description),
-          stock = COALESCE($4, stock),
-          featured = COALESCE($5, featured)
-        WHERE id = $6
-        RETURNING *`;
-      
-      const updateValues = [
-        req.body.name,
-        req.body.price,
-        req.body.description,
-        req.body.stock,
-        req.body.featured,
-        req.params.id
-      ];
-      
-      const updateResult = await client.query(updateQuery, updateValues);
-      
-      // update subtype
-      if(req.body.details) {
-        let subTypeUpdate;
-        switch(updateResult.rows[0].category) {
-          case 'wine':
-            subTypeUpdate = `
-              UPDATE wines SET
-                wine_type = COALESCE($1, wine_type),
-                grape_variety = COALESCE($2, grape_variety),
-                vintage = COALESCE($3, vintage)
-              WHERE product_id = $4`;
-            await client.query(subTypeUpdate, [
+    await client.query('BEGIN');
+
+    // update main product details
+    
+    if (!req.body.name || !req.body.category) {
+      return res.status(400).json({ error: 'Name and category are required.' });
+    }
+
+    const updateQuery = `
+      UPDATE products SET
+        name = COALESCE($1, name),
+        price = COALESCE($2, price),
+        description = COALESCE($3, description),
+        stock = COALESCE($4, stock),
+        featured = COALESCE($5, featured),
+        region = COALESCE($6, region),
+        country = COALESCE($7, country),
+        alcohol_content = COALESCE($8, alcohol_content),
+        volume_ml = COALESCE($9, volume_ml),
+        updated_at = CURRENT_TIMESTAMP
+      WHERE id = $10
+      RETURNING *`;
+    
+    const baseValues = [
+      req.body.name,
+      req.body.price,
+      req.body.description,
+      req.body.stock,
+      req.body.featured,
+      req.body.region,
+      req.body.country,
+      req.body.alcohol_content,
+      req.body.volume_ml,
+      req.params.id
+    ];
+    
+    const { rows } = await client.query(updateQuery, baseValues);
+    const updatedProduct = rows[0];
+
+    if (!updatedProduct) {
+      throw new Error(`Product with ID ${req.params.id} not found.`);
+    }
+
+    // subtypes
+    if (req.body.details) {
+      switch (updatedProduct.category) {
+        case 'wine':
+          await client.query(`
+            UPDATE wines SET
+              wine_type = COALESCE($1, wine_type),
+              grape_variety = COALESCE($2, grape_variety),
+              vintage = COALESCE($3, vintage),
+              appellation = COALESCE($4, appellation),
+              serving_temperature = COALESCE($5, serving_temperature)
+            WHERE product_id = $6`, [
               req.body.details.wine_type,
               req.body.details.grape_variety,
               req.body.details.vintage,
+              req.body.details.appellation,
+              req.body.details.serving_temperature,
               req.params.id
-            ]);
-            break;
-        }
+          ]);
+          break;
+
+        case 'spirits':
+          await client.query(`
+            UPDATE spirits SET
+              spirit_type = COALESCE($1, spirit_type),
+              age_statement = COALESCE($2, age_statement),
+              distillation_year = COALESCE($3, distillation_year),
+              cask_type = COALESCE($4, cask_type)
+            WHERE product_id = $5`, [
+              req.body.details.spirit_type,
+              req.body.details.age_statement,
+              req.body.details.distillation_year,
+              req.body.details.cask_type,
+              req.params.id
+          ]);
+          break;
+
+        case 'beer':
+          await client.query(`
+            UPDATE beers SET
+              style = COALESCE($1, style),
+              ibu = COALESCE($2, ibu),
+              fermentation_type = COALESCE($3, fermentation_type),
+              brewery = COALESCE($4, brewery)
+            WHERE product_id = $5`, [
+              req.body.details.style,
+              req.body.details.ibu,
+              req.body.details.fermentation_type,
+              req.body.details.brewery,
+              req.params.id
+          ]);
+          break;
+
+        case 'accessory':
+          await client.query(`
+            UPDATE accessories SET
+              accessory_type = COALESCE($1, accessory_type),
+              material = COALESCE($2, material),
+              compatible_with_product_type = COALESCE($3, compatible_with_product_type)
+            WHERE product_id = $4`, [
+              req.body.details.accessory_type,
+              req.body.details.material,
+              req.body.details.compatible_with_product_type,
+              req.params.id
+          ]);
+          break;
       }
-      
-      await client.query('COMMIT');
-      res.json(updateResult.rows[0]);
-    } finally {
-      client.release();
     }
+
+    await client.query('COMMIT');
+    res.json(updatedProduct);
   } catch (err) {
     await client.query('ROLLBACK');
     res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
   }
 });
+
 
 // Delete products
 router.delete('/:id', async (req, res) => {
@@ -433,6 +503,35 @@ router.put('/products/:productId/images/set-main', async (req, res) => {
     await client.query('ROLLBACK');
     console.error('Error setting main image:', err);
     res.status(500).json({ error: 'Failed to set main image.' });
+  } finally {
+    client.release();
+  }
+});
+
+// PUT /products/:id/images
+router.put('/:id/images', upload.single('image'), async (req, res) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const { id } = req.params;
+    const imageUrl = req.file ? `/uploads/${req.file.filename}` : req.body.url;
+    const altText = req.body.alt_text || '';
+
+    // delete existing
+    await client.query('DELETE FROM product_images WHERE product_id = $1', [id]);
+
+    // insert new
+    const result = await client.query(
+      `INSERT INTO product_images (product_id, url, alt_text, is_main) VALUES ($1, $2, $3, true) RETURNING *`,
+      [id, imageUrl, altText]
+    );
+
+    await client.query('COMMIT');
+    res.json(result.rows[0]);
+  } catch (err) {
+    await client.query('ROLLBACK');
+    res.status(500).json({ error: err.message });
   } finally {
     client.release();
   }

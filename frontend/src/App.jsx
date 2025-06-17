@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import axios from 'axios'
 import ImageUploader from './components/ImageUploader';
+import './App.css';
 
 const API_URL = process.env.NODE_ENV === 'production' 
   ? "http://localhost:3000/api/products" 
@@ -111,6 +112,7 @@ function App() {
       
       // Reset form
       setEditingId(null);
+      setProductImages([]);
       setFormData(prev => ({
         ...initializeFormData(prev.category),
         category: prev.category
@@ -165,6 +167,7 @@ function App() {
       const response = await axios.get(`${API_URL}/${id}`);
       const product = response.data;
       
+      setProductImages(product.images || []);
       setFormData({
         ...product,
         ...product.details
@@ -182,6 +185,7 @@ function App() {
 
   const handleCancelEdit = () => {
     setEditingId(null);
+    setProductImages([]);
     setShowEditForm(false);
     setFormData(initializeFormData('wine'));
   }
@@ -489,35 +493,34 @@ function App() {
                 required
               />
             </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">Price (€)</label>
+                <input
+                  type="number"
+                  placeholder="Price"
+                  value={formData.price}
+                  onChange={e => setFormData({...formData, price: e.target.value})}
+                  className="w-full p-2 border rounded"
+                  step="0.01"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Stock Quantity</label>
+                <input
+                  type="number"
+                  placeholder="Stock"
+                  value={formData.stock}
+                  onChange={e => setFormData({...formData, stock: e.target.value})}
+                  className="w-full p-2 border rounded"
+                  min="0"
+                />
+              </div>
+            </div>
 
             {formData.category !== 'accessories' && (
-              <>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium mb-1">Price (€)</label>
-                    <input
-                      type="number"
-                      placeholder="Price"
-                      value={formData.price}
-                      onChange={e => setFormData({...formData, price: e.target.value})}
-                      className="w-full p-2 border rounded"
-                      step="0.01"
-                      required
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium mb-1">Stock Quantity</label>
-                    <input
-                      type="number"
-                      placeholder="Stock"
-                      value={formData.stock}
-                      onChange={e => setFormData({...formData, stock: e.target.value})}
-                      className="w-full p-2 border rounded"
-                      min="0"
-                    />
-                  </div>
-                </div>
-
+              <>              
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium mb-1">Country</label>
@@ -552,9 +555,9 @@ function App() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium mb-1">Hightlight</label>
+                  <label className="block text-sm font-medium mb-1">Highlight</label>
                   <textarea
-                    placeholder="Hightlight"
+                    placeholder="Highlight"
                     value={formData.highlight}
                     onChange={e => setFormData({...formData, highlight: e.target.value})}
                     className="w-full p-2 border rounded"
@@ -680,10 +683,11 @@ function App() {
                   </>
                 )}
 
-                {product.category === 'accessory' && product.details && (
+                {product.category === 'accessories' && product.details && (
                   <>
                     <p><span className="font-semibold">Type:</span> {product.details.accessory_type}</p>
                     <p><span className="font-semibold">Material:</span> {product.details.material}</p>
+                    <p><span className="font-semibold">Compatible with:</span> {product.details.compatible_with_product_type}</p>
                   </>
                 )}
 
