@@ -15,13 +15,13 @@ app.use(cors({
 
 await runMigration();
 
-app.use('/products', productRoutes);
-
 // Middleware for logging requests
 app.use((req, res, next) => {
   console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
   next();
 });
+
+app.use('/products', productRoutes);
 
 // Health check route
 app.get('/health', async (req, res) => {

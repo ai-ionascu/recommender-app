@@ -7,6 +7,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import axios from 'axios';
 import multer from 'multer';
+import { validateProductData, normalize } from '../../common/index.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -30,162 +31,257 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET
 });
 
-router.post('/', async (req, res) => {
-  try {
-    const client = await pool.connect();
-    try {
-      await client.query('BEGIN');
-      
-      const slug = slugify(req.body.name, { lower: true, strict: true });
-      
-      // Creare produs principal
-      const productQuery = `INSERT INTO products (
-                            name, slug, price, category, country, region, 
-                            description, highlight, stock, 
-                            alcohol_content, volume_ml, featured)
-                            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) 
-                            RETURNING *`;
-      
-      const productValues = [
-        req.body.name,
-        slug,
-        req.body.price,
-        req.body.category,
-        req.body.country,
-        req.body.region,
-        req.body.description,
-        req.body.highlight,
-        req.body.stock || 0,
-        req.body.alcohol_content,
-        req.body.volume_ml,
-        req.body.featured || false
-      ];
-      
-      const productResult = await client.query(productQuery, productValues);
-      const newProduct = productResult.rows[0];
-      
-      // Creare sub-tip produs
-      let subTypeQuery;
-      switch(newProduct.category) {
-        case 'wine':
-          subTypeQuery = `INSERT INTO wines (
-                          product_id, wine_type, grape_variety, vintage, 
-                          appellation, serving_temperature)
-                          VALUES ($1, $2, $3, $4, $5, $6)
-                          RETURNING *`;
-          await client.query(subTypeQuery, [
-            newProduct.id,
-            req.body.wine_type,
-            req.body.grape_variety,
-            req.body.vintage,
-            req.body.appellation,
-            req.body.serving_temperature,
-          ]);
-          break;
-          
-        case 'spirit':
-          subTypeQuery = `INSERT INTO spirits (
-                          product_id, spirit_type, age_statement, 
-                          distillation_year, cask_type)
-                          VALUES ($1, $2, $3, $4, $5)
-                          RETURNING *`;
-          await client.query(subTypeQuery, [
-            newProduct.id,
-            req.body.spirit_type,
-            req.body.age_statement,
-            req.body.distillation_year,
-            req.body.cask_type
-          ]);
-          break;
-          
-        case 'beer':
-          subTypeQuery = `INSERT INTO beers (
-                          product_id, style, ibu, 
-                          fermentation_type, brewery)
-                          VALUES ($1, $2, $3, $4, $5)
-                          RETURNING *`;
-          await client.query(subTypeQuery, [
-            newProduct.id,
-            req.body.style,
-            req.body.ibu,
-            req.body.fermentation_type,
-            req.body.brewery
-          ]);
-          break;
-          
-        case 'accessories':
-          subTypeQuery = `INSERT INTO accessories (
-                          product_id, accessory_type, material, 
-                          compatible_with_product_type)
-                          VALUES ($1, $2, $3, $4)
-                          RETURNING *`;
-          await client.query(subTypeQuery, [
-            newProduct.id,
-            req.body.accessory_type,
-            req.body.material,
-            req.body.compatible_with_product_type
-          ]);
-          break;
-          
-        default:
-          throw new Error('Categorie produs invalidă');
-      }
-
-      // Save images to Cloudinary and database
-if (req.body.images && req.body.images.length > 0) {
-  const uploadedImages = await Promise.all(
-    req.body.images.map(async (img, index) => {
-      try {
-        const uploadResult = await cloudinary.uploader.upload(img.url, {
-          folder: 'products',
-        });
-
-        await client.query(
-          `INSERT INTO product_images (product_id, url, alt_text, is_main)
-           VALUES ($1, $2, $3, $4)`,
-          [
-            newProduct.id,
-            uploadResult.secure_url,
-            img.alt_text || `${newProduct.name}`,
-            index === 0, // first image is main
-          ]
-        );
-      } catch (uploadErr) {
-        console.error('Cloudinary error:', uploadErr);
-      }
-    })
-  );
+function parseNullableInt(value) {
+  return value === undefined || value === null || value === '' ? null : parseInt(value);
 }
 
-      // Save features
-      if(req.body.features && req.body.features.length > 0) {
-        await Promise.all(req.body.features.map(async feature => {
-          await client.query(
-            `INSERT INTO product_features (
-              product_id, key, value
-            ) VALUES ($1, $2, $3)`,
+router.post('/', async (req, res) => {
+  console.log('Received product data:', normalize(req.body));
+
+  const data = normalize(req.body);
+  const validationErrors = validateProductData(data);
+  console.log('Validation errors:', validationErrors);
+  if (Object.keys(validationErrors).length > 0) {
+    return res.status(400).json({ errors: validationErrors });
+  }
+  const client = await pool.connect();
+  let responseSent = false;
+  
+  try {
+    const {
+      name,
+      price,
+      category,
+      country,
+      region,
+      description,
+      highlight,
+      stock,
+      alcohol_content,
+      volume_ml,
+      featured,
+      images,
+      features,
+      // features per type
+      wine_type, grape_variety, vintage, appellation, serving_temperature,
+      spirit_type, age_statement, distillation_year, cask_type,
+      style, ibu, fermentation_type, brewery,
+      accessory_type, material, compatible_with_product_type
+    } = req.body;
+
+    // check image count and main image constraint
+    if (images?.length > 3) {
+      return res.status(400).json({ error: 'You can associate at most 3 images per product.' });
+    }
+
+    if (images?.length > 0) {
+      const mainCount = images.filter(img => img.is_main).length;
+      if (mainCount !== 1) {
+        return res.status(400).json({ error: 'Exactly one image must be marked as main.' });
+      }
+    }
+
+    
+    await client.query('BEGIN');
+
+    const slug = slugify(name, { lower: true, strict: true });
+
+    // insert main product
+    const productResult = await client.query(`
+      INSERT INTO products (
+        name, slug, price, category, country, region,
+        description, highlight, stock,
+        alcohol_content, volume_ml, featured
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+      RETURNING *`,
+      [
+        name,
+        slug,
+        price,
+        category,
+        country || null,
+        region || null,
+        description || null,
+        highlight || null,
+        parseNullableInt(stock) || 0,
+        parseNullableInt(alcohol_content) || null,
+        parseNullableInt(volume_ml) || null,
+        featured || false
+      ]
+    );
+    const newProduct = productResult.rows[0];
+
+    // insert subtype details based on category
+    switch (category) {
+      case 'wine':
+        await client.query(`
+          INSERT INTO wines (
+            product_id, wine_type, grape_variety, vintage,
+            appellation, serving_temperature
+          ) VALUES ($1, $2, $3, $4, $5, $6)`,
+          [
+            newProduct.id, wine_type, grape_variety, parseNullableInt(vintage) || null,
+            appellation || null, serving_temperature || null
+          ]);
+        break;
+      case 'spirits':
+        await client.query(`
+          INSERT INTO spirits (
+            product_id, spirit_type, age_statement,
+            distillation_year, cask_type
+          ) VALUES ($1, $2, $3, $4, $5)`,
+          [
+            newProduct.id, spirit_type, parseNullableInt(age_statement) || null,
+            parseNullableInt(distillation_year) || null, cask_type || null
+          ]);
+        break;
+      case 'beer':
+        await client.query(`
+          INSERT INTO beers (
+            product_id, style, ibu,
+            fermentation_type, brewery
+          ) VALUES ($1, $2, $3, $4, $5)`,
+          [
+            newProduct.id, style, parseNullableInt(ibu) || null,
+            fermentation_type, brewery
+          ]);
+        break;
+      case 'accessories':
+        await client.query(`
+          INSERT INTO accessories (
+            product_id, accessory_type, material,
+            compatible_with_product_type
+          ) VALUES ($1, $2, $3, $4)`,
+          [
+            newProduct.id, accessory_type, material,
+            compatible_with_product_type || null
+          ]);
+        break;
+      default:
+        throw new Error(`Unknown category: ${category}`);
+    }
+
+    // upload images to Cloudinary if any
+    if (images?.length > 0) {
+      await Promise.all(images.map(async (img) => {
+        try {
+          const upload = await cloudinary.uploader.upload(img.url, {
+            folder: 'products',
+          });
+
+          await client.query(`
+            INSERT INTO product_images (
+              product_id, url, alt_text, is_main
+            ) VALUES ($1, $2, $3, $4)`,
             [
               newProduct.id,
-              feature.key,
-              feature.value
-            ]
-          );
-        }));
-      }
-      
-      await client.query('COMMIT');
+              upload.secure_url,
+              img.alt_text || `${name}`,
+              !!img.is_main
+            ]);
+        } catch (err) {
+          console.error('Cloudinary upload error:', err);
+        }
+      }));
+    }
+
+    // insert into product_features if any features defined
+    if (features?.length > 0) {
+      await Promise.all(features.map(feature => {
+        return client.query(`
+          INSERT INTO product_features (
+            product_id, key, value
+          ) VALUES ($1, $2, $3)`,
+          [
+            newProduct.id,
+            feature.key,
+            feature.value
+          ]);
+      }));
+    }
+
+    await client.query('COMMIT');
+
+    if (!responseSent) {
+      responseSent = true;
       res.status(201).json({
         ...newProduct,
-        images: req.body.images || [],
-        features: req.body.features || []
+        images: images || [],
+        features: features || []
       });
-      
-    } finally {
+    }
+
+  } catch (err) {
+
+    if (client) {
+      try {
+        await client.query('ROLLBACK');
+      } catch (rollbackErr) {
+        console.error('Rollback failed:', rollbackErr);
+      }
+    }
+
+    // postgres error handling
+    if (err.code === '22001' && !responseSent) { // value too long for type
+      responseSent = true;
+      return res.status(400).json({
+        error: 'Input too long for one of the fields.'
+      });
+    }
+
+    if (err.code === '23502' && !responseSent) { // NOT NULL violation
+      responseSent = true;
+      return res.status(400).json({
+        error: `Missing required field: ${err.column || 'unknown'}`
+      });
+    }
+
+    if (err.code === '23503' && !responseSent) { // fk violation
+      responseSent = true;
+      return res.status(400).json({
+        error: `Missing foreign key: ${err.column || 'unknown'}`
+      });
+    }
+
+    if (err.code === '23505' && !responseSent) {
+      responseSent = true;
+
+      // Extract constraint name if possible
+      const constraint = err.constraint || '';
+      let field = 'unknown';
+
+      if (constraint.includes('unique_product_name')) {
+        field = 'name';
+      } else if (constraint.includes('products_slug_key')) {
+        field = 'slug';
+      } else if (constraint.includes('unique_feature_per_product_label')) {
+        field = 'feature label';
+      } else if (constraint.includes('unique_review_per_user_product')) {
+        field = 'review';
+      }
+
+      return res.status(400).json({
+        error: `Duplicate value for unique field: ${field}.`
+      });
+    }
+
+    console.error('Error in POST /products:', err);
+
+    if (!responseSent && (err instanceof SyntaxError || err instanceof TypeError ||
+       err instanceof ReferenceError || err instanceof RangeError || 
+       err instanceof EvalError)) {
+      responseSent = true;
+      return res.status(400).json({ error: err.message });
+    }
+
+    if (!responseSent) {
+      res.status(500).json({ error: 'Server error: ' + err.message });
+    }
+
+  } finally {
+    if (client) {
       client.release();
     }
-  } catch (err) {
-    await client.query('ROLLBACK');
-    res.status(500).json({ error: err.message });
   }
 });
 
@@ -209,9 +305,19 @@ router.get('/', async (req, res) => {
     const { rows: products } = await pool.query(query, params);
 
     const enrichedProducts = await Promise.all(products.map(async (product) => {
-      const [images, features] = await Promise.all([
-        pool.query('SELECT url, alt_text, is_main FROM product_images WHERE product_id = $1', [product.id]),
-        pool.query('SELECT key, value FROM product_features WHERE product_id = $1', [product.id])
+      const [imagesRes, featuresRes, reviewsRes] = await Promise.all([
+        pool.query(
+          'SELECT id, url, alt_text, is_main FROM product_images WHERE product_id = $1 ORDER BY is_main DESC',
+          [product.id]
+        ),
+        pool.query(
+          'SELECT id, label, value FROM product_features WHERE product_id = $1',
+          [product.id]
+        ),
+        pool.query(
+          'SELECT id, user_id, rating, comment, approved, created_at FROM product_reviews WHERE product_id = $1 AND approved = true ORDER BY created_at DESC',
+          [product.id]
+        )
       ]);
 
       let details = null;
@@ -221,7 +327,7 @@ router.get('/', async (req, res) => {
           details = await pool.query('SELECT * FROM wines WHERE product_id = $1', [product.id]);
           details = details.rows[0] || null;
           break;
-        case 'spirit':
+        case 'spirits':
           details = await pool.query('SELECT * FROM spirits WHERE product_id = $1', [product.id]);
           details = details.rows[0] || null;
           break;
@@ -237,8 +343,9 @@ router.get('/', async (req, res) => {
 
       return {
         ...product,
-        images: images.rows,
-        features: features.rows,
+        images: imagesRes.rows,
+        features: featuresRes.rows,
+        reviews: reviewsRes.rows,
         details
       };
     }));
@@ -261,15 +368,28 @@ router.get('/:id', async (req, res) => {
     }
     
     const product = productResult.rows[0];
-    let subTypeQuery;
     
+    let subTypeQuery;
+
     switch(product.category) {
       case 'wine':
         subTypeQuery = 'SELECT * FROM wines WHERE product_id = $1';
         break;
-      // Fill for the othe categories
+      case 'beer':
+        subTypeQuery = 'SELECT * FROM beers WHERE product_id = $1';
+        break;
+      case 'spirits':
+        subTypeQuery = 'SELECT * FROM spirits WHERE product_id = $1';
+        break;
+      case 'accessory':
+        subTypeQuery = 'SELECT * FROM accessories WHERE product_id = $1';
+        break;
     }
-    
+
+    if (!subTypeQuery) {
+      return res.status(400).json({ error: 'Invalid product category.' });
+    }
+
     const subTypeResult = await pool.query(subTypeQuery, [req.params.id]);
     product.details = subTypeResult.rows[0];
     
@@ -292,11 +412,23 @@ router.put('/:id', async (req, res) => {
   try {
     await client.query('BEGIN');
 
+    // images check
+    const images = req.body.images || [];
+    if (images.length > 3) {
+      return res.status(400).json({ error: 'You can associate at most 3 images per product.' });
+    }
+    if (images.length > 0) {
+      const mainCount = images.filter(img => img.is_main).length;
+      if (mainCount !== 1) {
+        return res.status(400).json({ error: 'Exactly one image must be marked as main.' });
+      }
+    }
+
     // update main product details
-    
     if (!req.body.name || !req.body.category) {
       return res.status(400).json({ error: 'Name and category are required.' });
     }
+    console.log(req.body);
 
     const updateQuery = `
       UPDATE products SET
@@ -386,7 +518,7 @@ router.put('/:id', async (req, res) => {
           ]);
           break;
 
-        case 'accessory':
+        case 'accessories':
           await client.query(`
             UPDATE accessories SET
               accessory_type = COALESCE($1, accessory_type),
@@ -401,12 +533,50 @@ router.put('/:id', async (req, res) => {
           break;
       }
     }
+    // delete existing images
+    await client.query('DELETE FROM product_images WHERE product_id = $1', [req.params.id]);
+
+    // upload and insert new images into Cloudinary
+    if (images.length > 0) {
+      for (const image of images) {
+        try {
+          const upload = await cloudinary.uploader.upload(image.url, {
+            folder: 'products',
+          });
+
+          await client.query(`
+            INSERT INTO product_images (product_id, url, alt_text, is_main)
+            VALUES ($1, $2, $3, $4)
+          `, [
+            req.params.id,
+            upload.secure_url,
+            image.alt_text || updatedProduct.name,
+            !!image.is_main
+          ]);
+        } catch (err) {
+          console.error('Cloudinary upload failed:', err);
+          throw new Error('Failed to upload image to Cloudinary');
+        }
+      }
+    }
+
 
     await client.query('COMMIT');
     res.json(updatedProduct);
   } catch (err) {
     await client.query('ROLLBACK');
-    res.status(500).json({ error: err.message });
+
+    if (err.code === '23505') {
+      // Unique constraint violation (ex: slug, name)
+      const detail = err.detail || '';
+      const match = detail.match(/\((.*?)\)=/); // Extract field name
+      const field = match?.[1] || 'unknown';
+      return res.status(400).json({
+        error: `Duplicate value for unique field: ${field}.`
+      });
+    }
+
+    return res.status(500).json({ error: err.message });
   } finally {
     client.release();
   }

@@ -2,10 +2,14 @@ import { useState, useEffect } from 'react'
 import axios from 'axios'
 import ImageUploader from './components/ImageUploader';
 import './App.css';
+import { validateProductData } from '../common/index.js';
 
 const API_URL = process.env.NODE_ENV === 'production' 
   ? "http://localhost:3000/api/products" 
   : "http://localhost:3001/products";
+
+const VITE_CLOUDINARY_UPLOAD_URL = import.meta.env.VITE_CLOUDINARY_UPLOAD_URL;
+const VITE_CLOUDINARY_UPLOAD_PRESET = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET;
 
 function App() {
   const [products, setProducts] = useState([])
@@ -13,25 +17,27 @@ function App() {
     // Common fields
     name: '',
     price: '',
-    category: 'wine',
+    category: '',
     country: '',
     region: '',
     description: '',
     highlight: '',
-    stock: 0,
+    stock: '',
     featured: false,
+
+    //drinks specific
+    alcohol_content: '',
+    volume_ml: '',
     
     // Wine-specific
-    alcohol_content: 13.5,
-    volume_ml: 750,
-    wine_type: 'red',
+    wine_type: '',
     grape_variety: '',
-    vintage: new Date().getFullYear(),
+    vintage: '',
     appellation: '',
-    serving_temperature: '16',
+    serving_temperature: '',
 
     // Spirits
-    spirit_type: 'whiskey',
+    spirit_type: '',
     age_statement: '',
     distillation_year: '',
     cask_type: '',
@@ -39,13 +45,13 @@ function App() {
     // Beer
     style: '',
     ibu: '',
-    fermentation_type: 'ale',
+    fermentation_type: '',
     brewery: '',
 
     // Accessories
     accessory_type: '',
     material: '',
-    compatible_with_product_type: 'wine'
+    compatible_with_product_type: ''
   })
 
   const [successMessage, setSuccessMessage] = useState(null);
@@ -58,6 +64,7 @@ function App() {
   const [uploadError, setUploadError] = useState(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState({});
 
   useEffect(() => {
     const fetchProducts = async () => {
@@ -72,60 +79,128 @@ function App() {
     fetchProducts()
   }, [])
 
-  const handleSubmit = async (e) => {
-    e.preventDefault()
-    try {
-      setErrorMessage(null);
-      setSuccessMessage(null);
-  
-      if (!formData.name || !formData.price || !formData.category) {
-        throw new Error('Mandatory fields: Category, Name and Price');
+  const prepareImagePayload = async (images) => {
+    
+    const result = [];
+
+    if (!images || images.length === 0) {
+      return result;
+    }
+
+    for (const img of images) {
+      if (img.rawFile instanceof File) {
+        // upload local file to Cloudinary
+        const formData = new FormData();
+        formData.append('file', img.rawFile);
+        formData.append('upload_preset', VITE_CLOUDINARY_UPLOAD_PRESET);
+        console.log("UPLOAD_URL:", VITE_CLOUDINARY_UPLOAD_URL);
+        console.log("UPLOAD_PRESET:", VITE_CLOUDINARY_UPLOAD_PRESET);
+
+        try {
+          const uploadRes = await axios.post(VITE_CLOUDINARY_UPLOAD_URL, formData);
+          result.push({
+            url: uploadRes.data.secure_url,
+            alt_text: img.alt_text || '',
+            is_main: img.is_main === true,
+          });
+        } catch (err) {
+          console.error('Cloudinary upload error:', err);
+          throw new Error('Failed to upload local image');
+        }
+      } else {
+        // forward existing external image (to be uploaded in backend)
+        result.push({
+          url: img.url,
+          alt_text: img.alt_text || '',
+          is_main: img.is_main === true
+        });
       }
-  
+    }
+
+    return result;
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setErrorMessage(null);
+    setSuccessMessage(null);
+    setFieldErrors({});
+
+    const errors = validateProductData(formData);
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
+      return;
+    }
+
+    console.log("productImages:", productImages);
+
+    if (productImages.length > 3) {
+      setErrorMessage("You can associate at most 3 images per product.");
+      return;
+    }
+
+    try {
+
+      const images = (await prepareImagePayload(productImages)).filter(img => img && img.url);
+      console.log("Prepared images:", images);
+      // Final validation: main image must be exactly one if any images
+      if (images.length > 0) {
+        const mainCount = images.filter(img => img.is_main).length;
+        if (mainCount === 0) {
+          images[0].is_main = true;
+        } else if (mainCount > 1) {
+          setErrorMessage("Exactly one image must be marked as main.");
+          return;
+        }
+      }
+
+      const payload = {
+        ...formData,
+        images,
+        ...(formData.category === 'accessories' && {
+          alcohol_content: undefined,
+          volume_ml: undefined,
+        }),
+      };
+
       let response;
       if (editingId) {
-        // Update existing product
         response = await axios.put(`${API_URL}/${editingId}`, {
-          ...formData,
-          details: getCategoryDetails()
+          ...payload,
+          details: getCategoryDetails(),
         });
-        setSuccessMessage('Produsul a fost actualizat cu succes!');
+        setSuccessMessage('The product has been successfully updated.');
       } else {
-        // Create new product
-        const payload = {
-          ...formData,
-          ...(formData.category === 'accessories' && {
-            alcohol_content: undefined,
-            volume_ml: undefined
-          })
-        };
-        if (productImages.length > 0) {
-          payload.images = productImages;
-        }
-        response = await axios.post(API_URL, payload);
-        setSuccessMessage('Produsul a fost adăugat cu succes!');
+        response = await axios.post(API_URL, payload, {
+          headers: { 'Content-Type': 'application/json' },
+        });
+        setSuccessMessage('The product has been successfully added.');
       }
-  
-      // Refresh products list
-      const newProducts = await axios.get(API_URL)
-      setProducts(newProducts.data)
-      
-      // Reset form
+
+      // reload
+      const newProducts = await axios.get(API_URL);
+      setProducts(newProducts.data);
+
+      // reset
       setEditingId(null);
       setProductImages([]);
       setFormData(prev => ({
         ...initializeFormData(prev.category),
-        category: prev.category
-      }))
-      
+        category: prev.category,
+      }));
+
       setTimeout(() => setSuccessMessage(null), 3000);
-      
+
     } catch (error) {
-      console.error('Error saving product:', error)
-      setErrorMessage(error.response?.data?.error || error.message);
-      setTimeout(() => setErrorMessage(null), 5000);
+      if (error.response?.status === 400 && error.response.data.errors) {
+        setFieldErrors(error.response.data.errors);
+      } else {
+        console.error('Error saving product:', error);
+        setErrorMessage(error.response?.data?.error || error.message);
+        setTimeout(() => setErrorMessage(null), 5000);
+      }
     }
-  }
+  };
 
   const getCategoryDetails = () => {
     switch(formData.category) {
@@ -170,7 +245,7 @@ function App() {
       setProductImages(product.images || []);
       setFormData({
         ...product,
-        ...product.details
+        ...(product.details || {})
       });
       
       setEditingId(id);
@@ -212,35 +287,39 @@ function App() {
     region: '',
     description: '',
     highlight: '',
-    stock: 0,
+    stock: '',
     featured: false,
     
     // Category-specific defaults
     ...(category === 'wine' && {
-      alcohol_content: 13.5,
-      volume_ml: 750,
-      wine_type: 'red',
+      wine_type: '',
       grape_variety: '',
-      vintage: new Date().getFullYear(),
+      alcohol_content: '',
+      volume_ml: '',
+      vintage: '',
       appellation: '',
-      serving_temperature: '16'
+      serving_temperature: ''
     }),
     ...(category === 'spirits' && {
-      spirit_type: 'whiskey',
+      spirit_type: '',
       age_statement: '',
       distillation_year: '',
+      alcohol_content: '',
+      volume_ml: '',
       cask_type: ''
     }),
     ...(category === 'beer' && {
       style: '',
       ibu: '',
-      fermentation_type: 'ale',
-      brewery: ''
+      fermentation_type: '',
+      brewery: '',
+      alcohol_content: '',
+      volume_ml: '',
     }),
     ...(category === 'accessories' && {
       accessory_type: '',
       material: '',
-      compatible_with_product_type: 'wine'
+      compatible_with_product_type: ''
     })
   })
 
@@ -257,7 +336,7 @@ function App() {
                   placeholder="Alcohol Content (%)"
                   value={formData.alcohol_content}
                   onChange={e => setFormData({...formData, alcohol_content: e.target.value})}
-                  className="p-2 border rounded"
+                  className={fieldErrors.alcohol_content ? 'input-error' : 'p-2 border rounded'}
                   step="0.1"
                 />
                 <input
@@ -265,31 +344,33 @@ function App() {
                   placeholder="Volume (ml)"
                   value={formData.volume_ml}
                   onChange={e => setFormData({...formData, volume_ml: e.target.value})}
-                  className="p-2 border rounded"
+                  className={fieldErrors.volume_ml ? 'input-error' : 'p-2 border rounded'}
                 />
                 <select
                   value={formData.wine_type}
                   onChange={e => setFormData({...formData, wine_type: e.target.value})}
-                  className="p-2 border rounded"
+                  className={fieldErrors.wine_type ? 'input-error' : 'p-2 border rounded'}
                 >
+                  <option value="">-- Select wine type --</option>
                   <option value="red">Red</option>
                   <option value="white">White</option>
                   <option value="rose">Rosé</option>
                   <option value="sparkling">Sparkling</option>
+                  <option value="dessert">Dessert</option>
                 </select>
                 <input
                   type="text"
                   placeholder="Grape Variety"
                   value={formData.grape_variety}
                   onChange={e => setFormData({...formData, grape_variety: e.target.value})}
-                  className="p-2 border rounded"
+                  className={fieldErrors.grape_variety ? 'input-error' : 'p-2 border rounded'}
                 />
                 <input
                   type="number"
                   placeholder="Vintage Year"
                   value={formData.vintage}
                   onChange={e => setFormData({...formData, vintage: e.target.value})}
-                  className="p-2 border rounded"
+                  className={fieldErrors.vintage ? 'input-error' : 'p-2 border rounded'}
                   min="1900"
                   max={new Date().getFullYear()}
                 />
@@ -321,8 +402,9 @@ function App() {
               <select
                 value={formData.spirit_type}
                 onChange={e => setFormData({...formData, spirit_type: e.target.value})}
-                className="p-2 border rounded"
+                className={fieldErrors.spirit_type ? 'input-error' : 'p-2 border rounded'}
               >
+                <option value="">-- Select spirit type --</option>
                 <option value="whiskey">Whiskey</option>
                 <option value="vodka">Vodka</option>
                 <option value="rhum">rhum</option>
@@ -341,7 +423,7 @@ function App() {
                 placeholder="Distillation Year"
                 value={formData.distillation_year}
                 onChange={e => setFormData({...formData, distillation_year: e.target.value})}
-                className="p-2 border rounded"
+                className={fieldErrors.distillation_year ? 'input-error' : 'p-2 border rounded'}
                 min="1900"
               />
               <input
@@ -351,6 +433,21 @@ function App() {
                 onChange={e => setFormData({...formData, cask_type: e.target.value})}
                 className="p-2 border rounded"
               />
+              <input
+                  type="number"
+                  placeholder="Alcohol Content (%)"
+                  value={formData.alcohol_content}
+                  onChange={e => setFormData({...formData, alcohol_content: e.target.value})}
+                  className={fieldErrors.alcohol_content ? 'input-error' : 'p-2 border rounded'}
+                  step="0.1"
+                />
+                <input
+                  type="number"
+                  placeholder="Volume (ml)"
+                  value={formData.volume_ml}
+                  onChange={e => setFormData({...formData, volume_ml: e.target.value})}
+                  className={fieldErrors.volume_ml ? 'input-error' : 'p-2 border rounded'}
+                />
             </div>
           </div>
         )
@@ -363,21 +460,21 @@ function App() {
               <select
                 value={formData.style}
                 onChange={e => setFormData({...formData, style: e.target.value})}
-                className="p-2 border rounded"
+                className={fieldErrors.style ? 'input-error' : 'p-2 border rounded'}
               >
                 <option value="">Select Style</option>
                 <option value="ipa">IPA</option>
                 <option value="stout">Stout</option>
                 <option value="lager">Lager</option>
                 <option value="pilsner">Pilsner</option>
-                <option value="sour">Sour</option>
+                <option value="wheat">Wheat</option>
               </select>
               <input
                 type="number"
                 placeholder="IBU"
                 value={formData.ibu}
                 onChange={e => setFormData({...formData, ibu: e.target.value})}
-                className="p-2 border rounded"
+                className={fieldErrors.ibu ? 'input-error' : 'p-2 border rounded'}
                 min="0"
                 max="100"
               />
@@ -395,8 +492,23 @@ function App() {
                 placeholder="Brewery"
                 value={formData.brewery}
                 onChange={e => setFormData({...formData, brewery: e.target.value})}
-                className="p-2 border rounded"
+                className={fieldErrors.brewery ? 'input-error' : 'p-2 border rounded'}
               />
+              <input
+                  type="number"
+                  placeholder="Alcohol Content (%)"
+                  value={formData.alcohol_content}
+                  onChange={e => setFormData({...formData, alcohol_content: e.target.value})}
+                  className={fieldErrors.alcohol_content ? 'input-error' : 'p-2 border rounded'}
+                  step="0.1"
+                />
+                <input
+                  type="number"
+                  placeholder="Volume (ml)"
+                  value={formData.volume_ml}
+                  onChange={e => setFormData({...formData, volume_ml: e.target.value})}
+                  className={fieldErrors.volume_ml ? 'input-error' : 'p-2 border rounded'}
+                />
             </div>
           </div>
         )
@@ -409,9 +521,9 @@ function App() {
               <select
                 value={formData.accessory_type}
                 onChange={e => setFormData({...formData, accessory_type: e.target.value})}
-                className="p-2 border rounded"
+                className={fieldErrors.accessory_type ? 'input-error' : 'p-2 border rounded'}
               >
-                <option value="">Select Type</option>
+                <option value="">-- Select Type --</option>
                 <option value="opener">Opener</option>
                 <option value="glassware">Glassware</option>
                 <option value="decanter">Decanter</option>
@@ -429,6 +541,7 @@ function App() {
                 onChange={e => setFormData({...formData, compatible_with_product_type: e.target.value})}
                 className="p-2 border rounded"
               >
+                <option value="">-- Compatible with --</option>
                 <option value="wine">Wine</option>
                 <option value="beer">Beer</option>
                 <option value="spirits">Spirits</option>
@@ -466,13 +579,14 @@ function App() {
           <div className="col-span-2">
             <label className="block text-sm font-medium mb-1">Product Category</label>
             <select
-              className="w-full p-2 border rounded"
+              className={fieldErrors.category ? 'input-error' : 'p-2 border rounded'}
               value={formData.category}
               onChange={e => setFormData({
                 ...initializeFormData(e.target.value),
                 category: e.target.value
               })}
             >
+              <option value="">-- Select category --</option>
               <option value="wine">Wine</option>
               <option value="spirits">Spirits</option>
               <option value="beer">Beer</option>
@@ -489,8 +603,7 @@ function App() {
                 placeholder="Product Name"
                 value={formData.name}
                 onChange={e => setFormData({...formData, name: e.target.value})}
-                className="w-full p-2 border rounded"
-                required
+                className={fieldErrors.name ? 'input-error' : 'p-2 border rounded'}
               />
             </div>
             <div className="grid grid-cols-2 gap-4">
@@ -501,9 +614,8 @@ function App() {
                   placeholder="Price"
                   value={formData.price}
                   onChange={e => setFormData({...formData, price: e.target.value})}
-                  className="w-full p-2 border rounded"
+                  className={fieldErrors.price ? 'input-error' : 'w-full p-2 border rounded'}
                   step="0.01"
-                  required
                 />
               </div>
               <div>
@@ -513,8 +625,7 @@ function App() {
                   placeholder="Stock"
                   value={formData.stock}
                   onChange={e => setFormData({...formData, stock: e.target.value})}
-                  className="w-full p-2 border rounded"
-                  min="0"
+                  className={fieldErrors.stock ? 'input-error' : 'w-full p-2 border rounded'}
                 />
               </div>
             </div>
@@ -529,7 +640,7 @@ function App() {
                       placeholder="Country"
                       value={formData.country}
                       onChange={e => setFormData({...formData, country: e.target.value})}
-                      className="w-full p-2 border rounded"
+                      className={fieldErrors.country ? 'input-error' : 'p-2 border rounded'}
                     />
                   </div>
                   <div>
@@ -568,7 +679,7 @@ function App() {
             )}
           </div>
 
-          {/* Dynamic Category-Specific Fields */}
+          {/* category fields */}
           {renderDynamicFields()}
 
           {/* Featured Toggle */}
@@ -663,7 +774,7 @@ function App() {
                     <p><span className="font-semibold">Type:</span> {product.details.wine_type}</p>
                     <p><span className="font-semibold">Grapes:</span> {product.details.grape_variety}</p>
                     <p><span className="font-semibold">Vintage:</span> {product.details.vintage}</p>
-                    <p><span className="font-semibold">Region:</span> {product.region}, {product.country}</p>
+                    <p><span className="font-semibold">Region:</span> { product.region ? [product.region, product.country].join(", ") : product.country}</p>
                   </>
                 )}
 
@@ -701,6 +812,7 @@ function App() {
               {/* Buttons */}
               <div className="flex justify-between mt-4">
                 <button
+                  type="button"
                   onClick={() => handleEdit(product.id)}
                   className="bg-blue-500 text-white px-3 py-1 rounded text-sm hover:bg-blue-600"
                 >
@@ -708,6 +820,7 @@ function App() {
                 </button>
 
                 <button
+                  type="button"
                   onClick={() => handleDelete(product.id)}
                   className="bg-red-500 text-white px-3 py-1 rounded text-sm hover:bg-red-600"
                 >

@@ -20,61 +20,63 @@ services:
       retries: 10
       start_period: 15s
 
-  mongodb:
-    image: mongo:6
-    env_file: .env
-    environment:
-      MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME}
-      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD}
-    ports:
-      - "27017:27017"
-    volumes:
-      - mongodb_data:/data/db
-    networks:
-      - wine-store-network
-    healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
+  # mongodb:
+  #   image: mongo:6
+  #   env_file: .env
+  #   environment:
+  #     MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME}
+  #     MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD}
+  #   ports:
+  #     - "27017:27017"
+  #   volumes:
+  #     - mongodb_data:/data/db
+  #   networks:
+  #     - wine-store-network
+  #   healthcheck:
+  #     test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+  #     interval: 5s
+  #     timeout: 5s
+  #     retries: 5
 
-  elasticsearch:
-    image: elasticsearch:8.9.0
-    environment:
-      - discovery.type=single-node
-      - ES_JAVA_OPTS=-Xms512m -Xmx512m
-      - xpack.security.enabled=false
-    volumes:
-      - elastic_data:/usr/share/elasticsearch/data
-    networks:
-      - wine-store-network
-    ulimits:
-      memlock:
-        soft: -1
-        hard: -1
+  # elasticsearch:
+  #   image: elasticsearch:8.9.0
+  #   environment:
+  #     - discovery.type=single-node
+  #     - ES_JAVA_OPTS=-Xms512m -Xmx512m
+  #     - xpack.security.enabled=false
+  #   volumes:
+  #     - elastic_data:/usr/share/elasticsearch/data
+  #   networks:
+  #     - wine-store-network
+  #   ulimits:
+  #     memlock:
+  #       soft: -1
+  #       hard: -1
 
-  rabbitmq:
-    image: rabbitmq:3-management
-    hostname: rabbitmq-broker
-    env_file: .env
-    environment:
-      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
-    ports:
-      - "5672:5672"
-      - "15672:15672"
-    # volumes:
-    #   - rabbitmq_data:/var/lib/rabbitmq
-    networks:
-      - wine-store-network
-    healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "status"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
+  # rabbitmq:
+  #   image: rabbitmq:3-management
+  #   hostname: rabbitmq-broker
+  #   env_file: .env
+  #   environment:
+  #     RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
+  #     RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
+  #   ports:
+  #     - "5672:5672"
+  #     - "15672:15672"
+  #   # volumes:
+  #   #   - rabbitmq_data:/var/lib/rabbitmq
+  #   networks:
+  #     - wine-store-network
+  #   healthcheck:
+  #     test: ["CMD", "rabbitmq-diagnostics", "status"]
+  #     interval: 30s
+  #     timeout: 10s
+  #     retries: 5
 
   product-service:
-    build: ./product-service
+    build:
+      context: .
+      dockerfile: product-service/Dockerfile
     env_file: .env
     environment:
       - NODE_ENV=production
@@ -104,9 +106,13 @@ services:
 
   frontend:
     build:
-      context: ./frontend
+      context: .
+      dockerfile: frontend/Dockerfile
       args:
-        - VITE_API_URL=${VITE_API_URL}
+        - VITE_API_URL
+        - VITE_CLOUDINARY_UPLOAD_URL
+        - VITE_CLOUDINARY_UPLOAD_PRESET
+    env_file: frontend/.env
     ports:
       - "3000:80"
     depends_on:
