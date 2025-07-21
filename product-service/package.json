@@ -5,8 +5,9 @@
   "main": "index.js",
   "scripts": {
     "start": "node src/app.js",
+    "start:with-migrate": "npm run migrate && npm start",
     "dev": "nodemon src/app.js",
-    "migrate": "node --no-warnings --no-experimental-fetch --experimental-modules src/db/run-migrations.js"
+    "migrate": "node src/db/migrations/001-initial-schema.js"
   },
   "keywords": [],
   "author": "",

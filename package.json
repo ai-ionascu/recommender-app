@@ -1,7 +1,11 @@
 {
-  "dependencies": {
-    "@faker-js/faker": "^9.7.0",
-    "cloudinary": "^2.6.1",
-    "dotenv": "^16.6.1"
+  "name": "online-shop-monorepo",
+  "private": true,
+  "workspaces": [
+    "common",
+    "product-service",
+    "frontend"
+  ],
+  "devDependencies": {
   }
 }

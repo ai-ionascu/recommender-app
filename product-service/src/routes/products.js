@@ -1,5 +1,5 @@
 import express from 'express';
-import { pool } from '../db/db.js';
+import { pool } from '../config/db.js';
 import slugify from 'slugify';
 import { v2 as cloudinary } from 'cloudinary';
 import dotenv from 'dotenv';
@@ -190,11 +190,11 @@ router.post('/', async (req, res) => {
       await Promise.all(features.map(feature => {
         return client.query(`
           INSERT INTO product_features (
-            product_id, key, value
+            product_id, label, value
           ) VALUES ($1, $2, $3)`,
           [
             newProduct.id,
-            feature.key,
+            feature.label,
             feature.value
           ]);
       }));
@@ -381,7 +381,7 @@ router.get('/:id', async (req, res) => {
       case 'spirits':
         subTypeQuery = 'SELECT * FROM spirits WHERE product_id = $1';
         break;
-      case 'accessory':
+      case 'accessories':
         subTypeQuery = 'SELECT * FROM accessories WHERE product_id = $1';
         break;
     }
@@ -636,7 +636,7 @@ router.get('/images/search', async (req, res) => {
 });
 
 // PUT /products/:productId/images/set-main
-router.put('/products/:productId/images/set-main', async (req, res) => {
+router.put('/:productId/images/set-main', async (req, res) => {
   const { url } = req.body;
   const { productId } = req.params;
 

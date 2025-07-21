@@ -2,6 +2,7 @@ services:
 
   postgres:
     image: postgres:15
+    container_name: postgres
     env_file: .env
     environment:
       POSTGRES_USER: ${PG_USER}
@@ -13,12 +14,17 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./infra/init/00-create-databases-and-roles.sql:/docker-entrypoint-initdb.d/00-create-databases-and-roles.sql:ro
+      - ./infra/init/01-init-products.sql:/docker-entrypoint-initdb.d/01-init-products.sql:ro
+      - ./infra/init/02-init-users.sql:/docker-entrypoint-initdb.d/02-init-users.sql:ro
+      - ./infra/init/03-init-analytics.sql:/docker-entrypoint-initdb.d/03-init-analytics.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${PG_USER} -d ${PG_DB} -t 30"]
-      interval: 3s
-      timeout: 30s
+      test: ["CMD-SHELL", "pg_isready -U ${PG_USER} -d ${PG_DB} -t 5"]
+      interval: 5s
+      timeout: 5s
       retries: 10
-      start_period: 15s
+      start_period: 10s
+
 
   # mongodb:
   #   image: mongo:6
@@ -77,25 +83,12 @@ services:
     build:
       context: .
       dockerfile: product-service/Dockerfile
-    env_file: .env
-    environment:
-      - NODE_ENV=production
-    ports:
-      - "3001:3000"
-    command: >
-      sh -c "
-      echo 'Waiting...';
-      while ! psql postgresql://${PG_USER}:${PG_PASSWORD}@postgres:5432/${PG_DB} -c 'SELECT 1' >/dev/null 2>&1; do
-        sleep 5;
-      done;
-      echo 'Executing migrations...';
-      node src/db/migrations/001-initial-schema.js;
-      echo 'Starting product service...';
-      node src/app.js
-      "
+    env_file: product-service/.env
     depends_on:
       postgres:
         condition: service_healthy
+    ports:
+      - "3001:3000"
     networks:
       - wine-store-network
     healthcheck:
@@ -108,16 +101,12 @@ services:
     build:
       context: .
       dockerfile: frontend/Dockerfile
-      args:
-        - VITE_API_URL
-        - VITE_CLOUDINARY_UPLOAD_URL
-        - VITE_CLOUDINARY_UPLOAD_PRESET
     env_file: frontend/.env
-    ports:
-      - "3000:80"
     depends_on:
       product-service:
         condition: service_healthy
+    ports:
+      - "3000:80"
     networks:
       - wine-store-network
     healthcheck:
@@ -128,8 +117,8 @@ services:
 
 volumes:
   postgres_data:
-  mongodb_data:
-  elastic_data:
+  # mongodb_data:
+  # elastic_data:
   # rabbitmq_data:
 
 networks:

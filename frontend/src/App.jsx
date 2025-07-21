@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react'
 import axios from 'axios'
 import ImageUploader from './components/ImageUploader';
 import './App.css';
-import { validateProductData } from '../common/index.js';
+import { validateProductData, normalize } from '@your-org/common';
+
 
 const API_URL = process.env.NODE_ENV === 'production' 
   ? "http://localhost:3000/api/products" 
