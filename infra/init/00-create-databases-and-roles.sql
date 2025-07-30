@@ -1,7 +1,3 @@
-CREATE DATABASE products_db;
-CREATE DATABASE users_db;
-CREATE DATABASE analytics_db;
-
 -- Logical group roles (NOLOGIN)
 CREATE ROLE products_read;
 CREATE ROLE products_write;
@@ -26,3 +22,7 @@ GRANT products_read TO products_admin;
 GRANT analytics_write TO analytics_admin;
 GRANT analytics_read TO analytics_reader;
 GRANT analytics_read TO analytics_admin;
+
+CREATE DATABASE products_db OWNER products_admin;
+CREATE DATABASE users_db OWNER users_admin;
+CREATE DATABASE analytics_db OWNER analytics_admin;

@@ -13,11 +13,7 @@ export async function runMigration() {
     console.log('Applying migration...');
     await client.query('BEGIN');
 
-    const schemaPath = path.join(
-      __dirname, 
-      'schemas', 
-      '001-initial-schema.sql'
-    );
+    const schemaPath = path.join(__dirname, '001-initial-schema.sql');
     const sql = fs.readFileSync(schemaPath, 'utf8');
 
     const commands = sql.split(';').filter(cmd => cmd.trim());

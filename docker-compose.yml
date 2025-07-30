@@ -14,10 +14,7 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./infra/init/00-create-databases-and-roles.sql:/docker-entrypoint-initdb.d/00-create-databases-and-roles.sql:ro
-      - ./infra/init/01-init-products.sql:/docker-entrypoint-initdb.d/01-init-products.sql:ro
-      - ./infra/init/02-init-users.sql:/docker-entrypoint-initdb.d/02-init-users.sql:ro
-      - ./infra/init/03-init-analytics.sql:/docker-entrypoint-initdb.d/03-init-analytics.sql:ro
+      - ./infra/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${PG_USER} -d ${PG_DB} -t 5"]
       interval: 5s
@@ -80,6 +77,7 @@ services:
   #     retries: 5
 
   product-service:
+    container_name: product-service
     build:
       context: .
       dockerfile: product-service/Dockerfile
@@ -98,6 +96,7 @@ services:
       retries: 5
 
   frontend:
+    container_name: frontend
     build:
       context: .
       dockerfile: frontend/Dockerfile
