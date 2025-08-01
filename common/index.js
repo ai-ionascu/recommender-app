@@ -1,2 +1,1 @@
-export { validateProductData, normalize } from './utils/validateProductData.js';
-
+export { generateUniqueSlug } from './utils/generateUniqueSlug.js';
