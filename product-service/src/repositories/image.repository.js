@@ -2,7 +2,7 @@ import { pool } from '../config/db.js';
 
 export const ImageRepository = {
   async addImages(clientOrPool, productId, images) {
-    const executor = clientOrPool.query ? clientOrPool : pool; // acceptă client de tranzacție sau pool
+    const executor = clientOrPool.query ? clientOrPool : pool;
     for (const img of images) {
       await executor.query(
         `INSERT INTO product_images (product_id, url, alt_text, is_main)
@@ -29,6 +29,14 @@ export const ImageRepository = {
     );
     return rows[0];
   },
+
+    async clearMain(clientOrPool, productId) {
+        const executor = clientOrPool.query ? clientOrPool : pool;
+        await executor.query(
+            'UPDATE product_images SET is_main = false WHERE product_id = $1',
+            [productId]
+        );
+    },
 
   async deleteImage(clientOrPool, productId, imageId) {
     const executor = clientOrPool.query ? clientOrPool : pool;

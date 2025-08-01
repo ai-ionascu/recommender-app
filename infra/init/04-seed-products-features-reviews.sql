@@ -51,12 +51,12 @@ INSERT INTO spirits  (product_id, spirit_type, age_statement, distillation_year,
 ;
 
 -- Beers (11–15)
-INSERT INTO beers    (product_id, style, ibu, fermentation_type, brewery) VALUES
+INSERT INTO beers (product_id, style, ibu, fermentation_type, brewery) VALUES
   (11,'pilsner',25,'lager','Pilsner Co'),
   (12,'stout'  ,40,'ale','Stout Inc'),
   (13,'ipa'    ,60,'ale','Hoppy Brewers'),
   (14,'wheat'  ,15,'ale','Wheat Works'),
-  (15,'porter' ,35,'ale','Porter House')
+  (15,'stout'  ,35,'ale','Porter House')
 ;
 
 -- Accessories (16–20)
@@ -120,10 +120,6 @@ INSERT INTO product_reviews (product_id, user_id, rating, comment, approved) VAL
 
 -- 5) RESET SEQUENCES
 SELECT setval('products_id_seq',      (SELECT MAX(id) FROM products));
-SELECT setval('wines_product_id_seq', (SELECT MAX(product_id) FROM wines));
-SELECT setval('spirits_product_id_seq',(SELECT MAX(product_id) FROM spirits));
-SELECT setval('beers_product_id_seq', (SELECT MAX(product_id) FROM beers));
-SELECT setval('accessories_product_id_seq',(SELECT MAX(product_id) FROM accessories));
 SELECT setval('product_features_id_seq',    (SELECT MAX(id) FROM product_features));
 SELECT setval('product_reviews_id_seq',     (SELECT MAX(id) FROM product_reviews));
 

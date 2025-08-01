@@ -4,13 +4,31 @@
 
 Acesta este microserviciul **Product Service** din cadrul aplicatiei. Gestioneaza CRUD pentru produse, imagini, caracteristici (features) si recenzii (reviews), in stil MVC si containerizat cu Docker.
 
+Versiunea actuala include:
+
+- Un backend REST complet functional pentru gestiunea produselor, cu:
+  - operatii CRUD complete cu validare pe baackend
+  - validare avansata si generare automata de `slug` unic
+  - cautare imagini prin APIs Unsplash si Pexels
+  - incarcare imagini cu Cloudinary, selectie `is_main` pentru imagini, validari stricte
+ 
+
+## Microservices — Product Service
+
+Versiunea actuala include un framework basic pentru dashboard Admin si este in curs de extindere:
+
+- Listare produse, creare, editare, stergere
+  - Formular dinamic create/edit cu câmpuri specifice categoriei
+  - Upload imagini cu preview, înlocuire, ștergere, alegere imagine principală
+  - Resetare completă a stării formularului și inputurilor după submit sau cancel
+
 ---
 
 ## Structura proiectului
 
 ```text
 wine_store/
-├── .vscode/
+|   |
 │   └── settings.json
 ├── common/
 │   ├── schemas/
@@ -213,20 +231,18 @@ curl -i -X POST http://localhost:3001/products/1/images \
 
 ## Next Steps
 
-**Frontend** (React + Vite):
-   - Serviciul este existent dar necesita refactorizare pe structura modelului MVC si armonizare cu serviciul product-service.
-   - Conectare la noile endpoint-uri dedicate.
-   - Componente pentru imagini, features, reviews.
+**auth-service** :
+   - Serviciu de autentificare si autorizare (login, JWT, roluri)
 
 ## Functionalitati planificate
 
-- Serviciu de autentificare si autorizare (login, JWT, roluri)
 - Serviciu de cos de cumparaturi si plasare comenzi
-- Sistem de recomandare (suggestii personalizate bazate pe comportament)
+- Sistem de recomandare (suggestii personalizate bazate pe comportament) - filtrare colaborativa, hibrid
 - Serviciu de cautare cu Elasticsearch (full-text, filtre, autocomplete)
 - Serviciu de analytics & raportare (metrici de vanzari, comportament utilizator)
 - Notificari in timp real (email, WebSocket)
-- Interfata Admin Dashboard (vizualizare KPI, management utilizatori si comenzi)
+- Interfata Admin Dashboard (vizualizare KPI, management utilizatori si comenzi etc.)
+- Finalizare frontend UI
 
 ## Functionalitati planificate (optional - nice to have)
 

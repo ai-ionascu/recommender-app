@@ -2,6 +2,7 @@
 import axios from 'axios';
 import AppError from '../errors/AppError.js';
 import { config } from '../config/env.js';
+import FormData from 'form-data';
 
 const UNSPLASH_ACCESS_KEY = config.external.unsplashKey;
 const PEXELS_API_KEY = config.external.pexelsKey;
@@ -46,5 +47,18 @@ export const MediaService = {
     }
 
     throw new AppError('No images found', 404);
-  }
+  },
+    async uploadImageFromUrl(url) {
+    const formData = new FormData();
+    formData.append('file', url);
+    formData.append('upload_preset', config.cloudinary.uploadPreset);
+
+    const res = await axios.post(
+        config.cloudinary.uploadUrl,
+        formData,
+        { headers: formData.getHeaders() }
+    );
+
+    return res.data.secure_url;
+    }
 };

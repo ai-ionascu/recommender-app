@@ -4,7 +4,7 @@ import PropTypes from 'prop-types';
 
 const VITE_API_URL = import.meta.env.VITE_API_URL;
 
-const ImageUploader = ({ productId, formData, productImages, onImagesUpdate }) => {
+const ImageUploader = ({ productId, formData, productImages, onImagesUpdate, shouldReset }) => {
   const [selectedFile, setSelectedFile] = useState(null);
   const [replaceTargetUrl, setReplaceTargetUrl] = useState(null);
   const [tempDummyImage, setTempDummyImage] = useState(null);
@@ -15,7 +15,27 @@ const ImageUploader = ({ productId, formData, productImages, onImagesUpdate }) =
 
   // Store batch of fetched images for current category
   const [imageBatch, setImageBatch] = useState([]);
-  const lastCategoryRef = useRef(''); // track last used category to reset image batch
+  const lastCategoryRef = useRef(); // track last used category to reset image batch
+  const fileInputRef = useRef();
+
+  useEffect(() => {
+    return () => {
+      if (selectedFile?.preview_url) {
+        URL.revokeObjectURL(selectedFile.preview_url);
+      }
+    };
+  }, [selectedFile]);
+
+  useEffect(() => {
+  if (shouldReset) {
+    setSelectedFile(null);
+    setTempDummyImage(null);
+    setReplaceTargetUrl(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  }
+}, [shouldReset]);
 
   // Valid wine types for specific search term mapping
   const wineTypes = ['red', 'white', 'rose', 'sparkling', 'dessert'];
@@ -154,6 +174,9 @@ const ImageUploader = ({ productId, formData, productImages, onImagesUpdate }) =
   const handleFileSelect = (e) => {
     const file = e.target.files[0];
     if (file) {
+      if (selectedFile?.preview_url) {
+        URL.revokeObjectURL(selectedFile.preview_url);
+      }
       const previewUrl = URL.createObjectURL(file);
       setSelectedFile({
         file,
@@ -173,15 +196,24 @@ const ImageUploader = ({ productId, formData, productImages, onImagesUpdate }) =
         url: selectedFile.preview_url,
         preview_url: selectedFile.preview_url,
         alt_text: selectedFile.file.name,
-        rawFile: selectedFile.file
+        rawFile: selectedFile.file,
+        is_main: productImages.length === 0 // set first image as main
       };
-      onImagesUpdate([...productImages, newImage]);
+      const updated = [...productImages, newImage];
+      onImagesUpdate(updated);
+      console.log('Updated images after adding local:', updated);
       setSelectedFile(null);
       return;
     }
 
     if (tempDummyImage?.url) {
-      onImagesUpdate([...productImages, tempDummyImage]);
+      const newImage = {
+        ...tempDummyImage,
+        is_main: productImages.length === 0 // set first image as main
+      };
+      const updated = [...productImages, newImage];
+      onImagesUpdate(updated);
+      console.log('Updated images after adding dummy:', updated);
       setTempDummyImage(null);
     }
   };
@@ -305,7 +337,7 @@ const ImageUploader = ({ productId, formData, productImages, onImagesUpdate }) =
           <button type="button" onClick={generateDummyImage} disabled={isGenerating} className="w-fit">
             {isGenerating ? 'Generating...' : 'Generate Image'}
           </button>
-          <input type="file" onChange={handleFileSelect} />
+          <input type="file" ref={fileInputRef} onChange={handleFileSelect} />
           <button
             type="button"
             onClick={handleAddDummyImage}
@@ -321,7 +353,7 @@ const ImageUploader = ({ productId, formData, productImages, onImagesUpdate }) =
       {replaceTargetUrl && (
         <div className="mt-6 border p-4 rounded bg-gray-50">
           <p className="font-semibold mb-2">Replacing selected image</p>
-          <input type="file" onChange={handleFileSelect} />
+          <input type="file" ref={fileInputRef} onChange={handleFileSelect} />
           <button type="button" onClick={generateDummyImage} className="mt-2">Generate Replacement</button>
           <button
             type="button"
@@ -331,7 +363,14 @@ const ImageUploader = ({ productId, formData, productImages, onImagesUpdate }) =
           >
             Apply
           </button>
-          <button type="button" onClick={() => setReplaceTargetUrl(null)}>Cancel</button>
+          <button type="button" onClick={() =>{
+            if (selectedFile?.preview_url) {
+              URL.revokeObjectURL(selectedFile.preview_url);
+            }
+            setReplaceTargetUrl(null);
+            setSelectedFile(null);
+          }}>Cancel</button>
+
           <ImagePreview
             file={selectedFile}
             image={tempDummyImage}
@@ -343,7 +382,7 @@ const ImageUploader = ({ productId, formData, productImages, onImagesUpdate }) =
       {/* preview if not in replacement mode */}
       {(tempDummyImage || selectedFile) && !replaceTargetUrl && productImages.length < 3 && (
         <ImagePreview
-          file={selectedFile?.file}
+          file={selectedFile}
           image={tempDummyImage}
           label="Preview"
         />

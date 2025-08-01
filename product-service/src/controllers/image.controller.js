@@ -19,7 +19,12 @@ export const ImageController = {
   }),
 
   remove: catchAsync(async (req, res) => {
-    const remaining = await ImageService.remove(req.params.id, req.params.imageId);
-    res.json(remaining);
-  })
+    const { images, mainImageAutoSet } = await ImageService.remove(req.params.id, req.params.imageId);
+
+    const response = { images };
+    if (mainImageAutoSet) {
+        response.info = 'The main image was deleted. A new main image was set automatically.';
+    }
+    res.json(response);
+ })
 };

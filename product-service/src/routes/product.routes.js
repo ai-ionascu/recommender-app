@@ -4,9 +4,6 @@ import { validateProduct } from '../validations/product.validation.js';
 
 const router = Router();
 
-// Search images route proxy Unsplash/Pexels
-router.get('/images/search', ProductController.searchImages);
-
 // CRUD routes for products
 router.get('/', ProductController.list);
 router.get('/:productId', ProductController.getOne);

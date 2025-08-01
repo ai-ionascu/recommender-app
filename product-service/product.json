@@ -1,10 +1,9 @@
 {
-  "name": "Test Wine 2",
+  "name": "test wine",
   "category": "wine",
-  "price": 12.5,
-  "stock": 10,
-  "country": "France",
-  "grape_variety": "Merlot",
-  "wine_type": "red",
-  "vintage": 2020
+  "price": "1",
+  "stock": "2",
+  "wine_type": "rose",
+  "grape_variety": "bhretnrtn",
+  "country": "Romania"
 }

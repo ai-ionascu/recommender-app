@@ -1,7 +1,7 @@
 import { ProductService } from '../services/product.service.js';
 import catchAsync from '../utils/catchAsync.js';
 import AppError from '../errors/AppError.js';
-import { MediaService } from '../services/media.service.js';
+
 
 export const ProductController = {
   create: catchAsync(async (req, res) => {
@@ -28,18 +28,5 @@ export const ProductController = {
   delete: catchAsync(async (req, res) => {
     await ProductService.deleteProduct(req.params.productId);
     res.status(204).end();
-  }),
-
-  // image search (proxy Unsplash/Pexels)
-  searchImages: catchAsync(async (req, res) => {
-    const { query, per_page, page } = req.query;
-    if (!query || typeof query !== 'string') {
-      throw new AppError('Missing or invalid "query" parameter', 400);
-    }
-    const perPage = Number(per_page) || 30;
-    const pageNum = Number(page) || 1;
-
-    const imgs = await MediaService.searchImages(query, perPage, pageNum);
-    res.json(imgs);
   })
 };
