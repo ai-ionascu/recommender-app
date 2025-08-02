@@ -2,7 +2,7 @@ import AppError from '../errors/AppError.js';
 import { withTransaction } from '../utils/transaction.js';
 import { ProductRepository, slugExists} from '../repositories/product.repository.js';
 import { SubtypeRepository } from '../repositories/subtype.repository.js';
-import { generateUniqueSlug } from '@your-org/common';
+import { generateUniqueSlug } from '../../../common/utils/generateUniqueSlug.js';
 import { ImageService } from '../services/image.service.js';
 import { FeatureService } from '../services/feature.service.js';
 
@@ -20,8 +20,13 @@ export const ProductService = {
             const product = await ProductRepository.createProduct(client, payload);
             await SubtypeRepository.createSubtype(client, product.id, payload);
 
-            if (Array.isArray(payload.images) && payload.images.length > 0) {
-                await ImageService.add(client, product.id, payload.images);
+            let images = payload.images;
+            if (images && !Array.isArray(images)) {
+              images = [images];
+            }
+
+            if (Array.isArray(images) && images.length > 0) {
+              await ImageService.add(product.id, images, client);
             }
 
             return product;
