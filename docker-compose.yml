@@ -114,6 +114,30 @@ services:
       timeout: 5s
       retries: 5
 
+  auth-service:
+    container_name: auth-service
+    build:
+      context: .
+      dockerfile: auth-service/Dockerfile
+    env_file:
+      - auth-service/.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "4000:4000"
+    networks:
+      - wine-store-network
+    volumes:
+      - ./auth-service:/app
+      - ./infra/init:/docker-entrypoint-initdb.d:ro
+    working_dir: /app
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
 volumes:
   postgres_data:
   # mongodb_data:

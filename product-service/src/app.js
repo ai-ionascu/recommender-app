@@ -1,5 +1,6 @@
 import express from 'express';
 import { runMigration } from './db/migrations/001-initial-schema.js';
+import { seedProducts } from './db/seed/seed-products.js';
 import cors from 'cors';
 import { errorHandler } from './errors/errorHandler.js';
 import { config } from './config/env.js';
@@ -22,40 +23,15 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
-// apply database migrations before handling any requests
- await runMigration();
-
-// app.use(cors({
-//   origin: ['http://localhost:3000'],
-//   methods: ['GET', 'POST', 'PUT', 'DELETE'],
-//   allowedHeaders: ['Content-Type', 'Authorization']
-// }));
-
-// Middleware for logging requests
-// app.use((req, res, next) => {
-//   console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
-//   next();
-// });
+// apply database migrations before handling any requests - only in development!!
+// seed the database with initial products
+// if (config.env === 'development') {
+  await runMigration();
+  await seedProducts();
+// }
 
 // Health check route
 app.get('/health', (_req, res) => res.json({ status: 'OK' }));
-// app.get('/health', async (req, res) => {
-//   try {
-//     await pool.query('SELECT 1');
-//     console.log('Health check successful');
-//     res.status(200).json({
-//       status: "OK",
-//       database: "connected"
-//     });
-//   } catch (err) {
-//     console.error('Health check failed:', err);
-//     res.status(500).json({
-//       status: "ERROR",
-//       database: "disconnected",
-//       error: err.message
-//     });
-//   }
-// });
 
 // mount routes
 app.use('/products', productRoutes);

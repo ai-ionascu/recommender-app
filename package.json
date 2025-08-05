@@ -6,6 +6,7 @@
     "product-service",
     "frontend"
   ],
-  "devDependencies": {
+  "dependencies": {
+    "bcryptjs": "^3.0.2"
   }
 }
