@@ -1,0 +1,24 @@
+{
+  "name": "order-service",
+  "version": "1.0.0",
+  "description": "Orders & cart microservice",
+  "type": "module",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js",
+    "migrate": "node src/db/run-migrations.js"
+  },
+  "dependencies": {
+    "amqplib": "^0.10.8",
+    "axios": "^1.8.4",
+    "dotenv": "^16.5.0",
+    "express": "^4.21.2",
+    "jsonwebtoken": "^8.5.1",
+    "mongoose": "^7.8.7",
+    "stripe": "^14.0.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.9"
+  }
+}

@@ -2,10 +2,13 @@ FROM node:20
 
 WORKDIR /app
 
-COPY package*.json ./
+COPY auth-service/package*.json ./
 RUN npm install
 
-COPY . .
+COPY auth-service/ .
+
+COPY common/ ./common/
 
 EXPOSE 4000
+
 CMD ["npm", "run", "dev"]

@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS password_reset_tokens (
 CREATE TABLE IF NOT EXISTS email_change_tokens (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID REFERENCES users(id) ON DELETE CASCADE,
-  token TEXT PRIMARY KEY,
+  token TEXT UNIQUE NOT NULL,
   new_email TEXT NOT NULL,
   expires_at TIMESTAMP NOT NULL
 );

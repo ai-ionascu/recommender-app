@@ -15,6 +15,7 @@
   "type": "module",
   "dependencies": {
     "@your-org/common": "file:../common",
+    "amqplib": "^0.10.8",
     "axios": "^1.8.4",
     "cloudinary": "^1.40.0",
     "cors": "^2.8.5",

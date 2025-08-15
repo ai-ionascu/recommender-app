@@ -8,6 +8,9 @@ CREATE ROLE users_write;
 CREATE ROLE analytics_read;
 CREATE ROLE analytics_write;
 
+CREATE ROLE orders_read;
+CREATE ROLE orders_write;
+
 -- Login roles (inherit)
 CREATE ROLE products_admin LOGIN PASSWORD 'admin' INHERIT;
 CREATE ROLE products_reader LOGIN PASSWORD 'reader' INHERIT;

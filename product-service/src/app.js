@@ -5,6 +5,9 @@ import cors from 'cors';
 import { errorHandler } from './errors/errorHandler.js';
 import { config } from './config/env.js';
 
+import { runProcessedEventsMigration } from './db/migrations/002-processed-events.js';
+import { startOrderPaidConsumer } from './consumers/orderPaid.consumer.js';
+
 import productRoutes from './routes/product.routes.js';
 import imageRoutes   from './routes/image.routes.js';
 import featureRoutes from './routes/feature.routes.js';
@@ -27,8 +30,11 @@ app.use(cors({
 // seed the database with initial products
 // if (config.env === 'development') {
   await runMigration();
+  await runProcessedEventsMigration();
   await seedProducts();
 // }
+
+startOrderPaidConsumer().catch(err => console.error('[Rabbit consumer] failed:', err));
 
 // Health check route
 app.get('/health', (_req, res) => res.json({ status: 'OK' }));

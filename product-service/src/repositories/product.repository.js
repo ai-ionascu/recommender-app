@@ -72,7 +72,24 @@ export const ProductRepository = {
 
     async deleteProduct(client, id) {
         await client.query('DELETE FROM products WHERE id = $1', [id]);
-    }
+    },
+
+    async decrementStockTx(client, productId, qty) {
+        // do not drop stock below 0
+        const { rows } = await client.query(
+        `UPDATE products
+        SET stock = stock - $2,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = $1 AND stock >= $2
+        RETURNING id, stock`,
+        [productId, qty]
+        );
+        return rows[0] || null;
+    },
+
+    async begin(client) { await client.query('BEGIN'); },
+    async commit(client) { await client.query('COMMIT'); },
+    async rollback(client) { await client.query('ROLLBACK'); }
 };
 
 export async function slugExists(slug) {
