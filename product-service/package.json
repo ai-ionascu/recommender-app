@@ -7,13 +7,16 @@
     "start": "node src/app.js",
     "start:with-migrate": "npm run migrate && npm start",
     "dev": "nodemon src/app.js",
-    "migrate": "node src/db/migrations/001-initial-schema.js"
+    "migrate": "node src/db/migrations/001-initial-schema.js",
+    "es:init": "node ../scripts/es/initProductsIndex.js",
+    "es:backfill": "node ../scripts/es/backfillProductsToEs.js"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "module",
   "dependencies": {
+    "@elastic/elasticsearch": "^8.19.0",
     "@your-org/common": "file:../common",
     "amqplib": "^0.10.8",
     "axios": "^1.8.4",

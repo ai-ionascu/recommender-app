@@ -5,7 +5,6 @@ npm-debug.log
 __pycache__/
 *.pyc
 venv/
-docker-compose.override.yml
 .vscode/
 .idea/
 arbore_foldere.txt

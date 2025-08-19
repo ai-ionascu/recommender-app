@@ -65,13 +65,19 @@ export const ProductRepository = {
         return rows;
     },
 
-    async getProductById(id) {
+    async getProductById(client, id) {
+        const { rows } = await client.query('SELECT * FROM products WHERE id = $1', [id]);
+        return rows[0];
+    },
+
+    async getProductByIdPool(id) {
         const { rows } = await pool.query('SELECT * FROM products WHERE id = $1', [id]);
         return rows[0];
     },
 
     async deleteProduct(client, id) {
-        await client.query('DELETE FROM products WHERE id = $1', [id]);
+        const { rowCount } = await client.query('DELETE FROM products WHERE id = $1', [id]);
+        return rowCount > 0;
     },
 
     async decrementStockTx(client, productId, qty) {

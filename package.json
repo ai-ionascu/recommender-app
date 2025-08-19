@@ -1,5 +1,6 @@
 {
   "name": "online-shop-monorepo",
+  "type": "module",
   "private": true,
   "workspaces": [
     "common",

@@ -1,0 +1,142 @@
+{
+  "settings": {
+    "analysis": {
+      "filter": {
+        "ro_stop": { "type": "stop", "stopwords": "_romanian_" },
+        "ro_stem": { "type": "stemmer", "language": "romanian" },
+        "en_stem": { "type": "stemmer", "language": "english" },
+        "syn_wine": {
+          "type": "synonym",
+          "lenient": true,
+          "synonyms": [
+            "spumant, sampanie",
+            "rose, rosé",
+            "cabernet sauvignon => cabernet",
+            "pinot gris, pinot grigio"
+          ]
+        },
+        "edge_2_20": { "type": "edge_ngram", "min_gram": 2, "max_gram": 20 },
+        "asciifolding_preserve": { "type": "asciifolding", "preserve_original": true }
+      },
+      "analyzer": {
+        "text_ro_en": {
+          "type": "custom",
+          "tokenizer": "standard",
+          "filter": [
+            "lowercase",
+            "syn_wine",
+            "ro_stop",
+            "asciifolding_preserve",
+            "ro_stem",
+            "en_stem"
+          ]
+        },
+        "autocomplete": {
+          "type": "custom",
+          "tokenizer": "standard",
+          "filter": [
+            "lowercase",
+            "syn_wine",
+            "ro_stop",
+            "asciifolding_preserve",
+            "edge_2_20"
+          ]
+        }
+      },
+      "normalizer": {
+        "kw_lower": { "type": "custom", "filter": ["lowercase"] },
+        "kw_fold":  { "type": "custom", "filter": ["lowercase","asciifolding"] }
+      }
+    }
+  },
+  "mappings": {
+    "properties": {
+      "id":               { "type": "integer" },
+      "name": {
+        "type": "text",
+        "analyzer": "text_ro_en",
+        "fields": {
+          "keyword": { "type": "keyword", "normalizer": "kw_lower" },
+          "auto":    { "type": "text", "analyzer": "autocomplete", "search_analyzer": "text_ro_en" }
+        }
+      },
+      "slug":             { "type": "keyword", "normalizer": "kw_fold" },
+      "price":            { "type": "scaled_float", "scaling_factor": 100 },
+      "category":         { "type": "keyword" },
+      "country":          { "type": "keyword", "normalizer": "kw_fold" },
+      "region":           { "type": "keyword", "normalizer": "kw_fold" },
+      "description":      { "type": "text", "analyzer": "text_ro_en" },
+      "highlight":        { "type": "text", "analyzer": "text_ro_en" },
+      "stock":            { "type": "integer" },
+      "alcohol_content":  { "type": "scaled_float", "scaling_factor": 100 },
+      "volume_ml":        { "type": "integer" },
+      "featured":         { "type": "boolean" },
+      "created_at":       { "type": "date" },
+      "updated_at":       { "type": "date" },
+
+      "images": {
+        "type": "nested",
+        "properties": {
+          "url":      { "type": "keyword" },
+          "alt_text": { "type": "text", "analyzer": "text_ro_en" },
+          "is_main":  { "type": "boolean" }
+        }
+      },
+
+      "features": {
+        "type": "nested",
+        "properties": {
+          "label": { "type": "keyword", "normalizer": "kw_fold" },
+          "value": { "type": "text", "analyzer": "text_ro_en" }
+        }
+      },
+
+      "reviews": {
+        "properties": {
+          "rating_avg":   { "type": "half_float" },
+          "review_count": { "type": "integer" }
+        }
+      },
+
+      "wines": {
+        "properties": {
+          "wine_type":           { "type": "keyword", "normalizer": "kw_fold" },
+          "grape_variety":       { "type": "keyword", "normalizer": "kw_fold" },
+          "vintage":             { "type": "short" },
+          "appellation":         { "type": "keyword", "normalizer": "kw_fold" },
+          "serving_temperature": { "type": "keyword", "normalizer": "kw_fold" }
+        }
+      },
+
+      "spirits": {
+        "properties": {
+          "spirit_type":       { "type": "keyword" },
+          "age_statement":     { "type": "short" },
+          "distillation_year": { "type": "short" },
+          "cask_type":         { "type": "keyword", "normalizer": "kw_lower" }
+        }
+      },
+
+      "beers": {
+        "properties": {
+          "style":             { "type": "keyword" },
+          "ibu":               { "type": "short" },
+          "fermentation_type": { "type": "keyword", "normalizer": "kw_lower" },
+          "brewery":           { "type": "keyword", "normalizer": "kw_lower" }
+        }
+      },
+
+      "accessories": {
+        "properties": {
+          "accessory_type":              { "type": "keyword" },
+          "material":                    { "type": "keyword", "normalizer": "kw_lower" },
+          "compatible_with_product_type":{ "type": "keyword" }
+        }
+      },
+
+      "search_blob": { "type": "text", "analyzer": "text_ro_en" },
+      "popularity":  { "type": "integer" },
+      "sales_30d":   { "type": "integer" }
+    }
+  }
+}

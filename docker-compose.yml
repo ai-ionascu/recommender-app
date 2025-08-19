@@ -39,21 +39,6 @@ services:
       timeout: 5s
       retries: 10
 
-  # elasticsearch:
-  #   image: elasticsearch:8.9.0
-  #   environment:
-  #     - discovery.type=single-node
-  #     - ES_JAVA_OPTS=-Xms512m -Xmx512m
-  #     - xpack.security.enabled=false
-  #   volumes:
-  #     - elastic_data:/usr/share/elasticsearch/data
-  #   networks:
-  #     - wine-store-network
-  #   ulimits:
-  #     memlock:
-  #       soft: -1
-  #       hard: -1
-
   rabbitmq:
     image: rabbitmq:3-management
     container_name: rabbitmq
@@ -91,8 +76,8 @@ services:
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
       interval: 10s
-      timeout: 5s
-      retries: 5
+      timeout: 3s
+      retries: 10
 
   frontend:
     container_name: frontend
@@ -165,7 +150,6 @@ services:
         interval: 10s
         timeout: 5s
         retries: 10
-        start_period: 10s
 
 volumes:
   postgres_data:
