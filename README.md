@@ -98,6 +98,29 @@ Versiunea actuala include:
   - Cronjob pentru curatare tokenuri expirate (email verification, password reset, email change)
   - stergere automata useri neverificati dupa 1h
 
+## Microservices — Search (Elasticsearch & Kibana)
+
+Integrarea **Elasticsearch** oferă funcționalități avansate de căutare full-text, autocomplete și filtrare prin **facets**.  
+**Kibana** este inclus pentru debugging și analiză, disponibil pe portul `5601`.
+
+### Versiunea actuală include:
+
+- **Indexare automată**
+  - La creare/actualizare produs în `product-service`, documentul este indexat în Elasticsearch
+  - La ștergere produs, documentul este eliminat și din index
+
+- **Mapping & Analyzers**
+  - `text_ro_en` cu stopwords (RO+EN), stemming, synonyms, asciifolding
+  - `autocomplete` bazat pe `edge_ngram` pentru sugestii rapide
+  - Suport pentru căutare tolerantă la diacritice și fuzzy matching
+
+- **Facets & Boosting**
+  - Facets pe `country`, `grape`, `price` (intervale dinamice)
+  - Boost pentru produse `featured`, recență (`sales_30d`) și recenzii pozitive
+
+- **Kibana**
+  - Interfață web la [http://localhost:5601](http://localhost:5601) pentru interogări, analiză date și debugging
+
 ---
 
 ## Structura proiectului
@@ -117,18 +140,29 @@ wine_store/
 │       ├── 02-init-users.sql
 │       └── 03-init-analytics.sql
 ├── product-service/
-│   ├── Dockerfile
-│   └── src/...
+│   ├── es-bootstrap.sh                 # bootstrap ES + backfill la startup
+│   ├── scripts/
+│   │   └── es/
+│   │       ├── initProductsIndex.js    # creează index/alias
+│   │       ├── backfillProductsToEs.js # reindexare din Postgres
+│   │       └── products.mapping.json   # mapping + analyzers
+│   ├── src/
+│   │    └── search/
+│   │        ├── esClient.js
+│   │        ├── search.controller.js
+│   │        └── search.routes.js
+│   └── ...
 ├── order-service/
 │   ├── Dockerfile
 │   ├── package.json
-│   └── src/
-│       ├── models/ (Cart, Order, Payment, ProcessedEvent)
-│       ├── controllers/
-│       ├── services/
-│       ├── routes/
-│       ├── utils/
-│       └── config/
+│   ├── src/
+│   │   ├── models/ (Cart, Order, Payment, ProcessedEvent)
+│   │   ├── controllers/
+│   │   ├── services/
+│   │   ├── routes/
+│   │   ├── utils/
+│   │   └── config/
+│   └── ...
 ├── auth-service/
 │   ├── Dockerfile
 │   └── src/...
@@ -136,37 +170,113 @@ wine_store/
 ├── README.md
 └── ...
 ```
-
 ---
 
 ## Setup & Pornire
 
 ### Product Service
 
-1. **Defineste variabilele** in fisierul `.env` (in radacina):
+1. **Defineste variabilele** in fisierul `.env`:
 
    ```dotenv
-   # PostgreSQL
-   PG_USER=admin
-   PG_PASSWORD=...
-   PG_DB=products_db
-   PG_PORT=5432
-   # RabbitMQ, Mongo, Elasticsearch, etc.
-   RABBITMQ_DEFAULT_USER=admin
-   RABBITMQ_DEFAULT_PASS=...
+    # server
+    PORT=3000
+    NODE_ENV=production
 
-   # Cloudinary, Pexels, Unsplash
-   CLOUDINARY_CLOUD_NAME=...
-   CLOUDINARY_API_KEY=...
-   CLOUDINARY_API_SECRET=...
-   PEXELS_API_KEY=...
-   UNSPLASH_ACCESS_KEY=...
+    # database
+    PG_HOST=postgres
+    PG_PORT=5432
+    PG_USER=products_admin
+    PG_PASSWORD=admin
+    PG_DB=products_db
+    DATABASE_URL=postgres://products_admin:admin@postgres:5432/products_db
 
-   # Port
-   PORT=3001
+    # Cloudinary
+    CLOUDINARY_CLOUD_NAME=...
+    CLOUDINARY_API_KEY=594434818152253
+    CLOUDINARY_API_SECRET=...
+    CLOUDINARY_UPLOAD_URL=https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload
+    CLOUDINARY_UPLOAD_PRESET=products_unsigned
+
+    # Image APIs
+    PEXELS_API_KEY=...
+    UNSPLASH_ACCESS_KEY=...
+
+    # rabbitMQ
+    RABBITMQ_URL=amqp://appuser:appsecret@rabbitmq:5672
+    RABBITMQ_EXCHANGE=events
+    RABBITMQ_STOCK_QUEUE=product.stock.adjust
+
+    # Elasticsearch
+    ES_URL=http://elasticsearch:9200
+    ES_ALIAS=products
    ```
+2. **Servicii noi in docker-compose.yml:**
 
-2. **Scripturi init DB** (`infra/init/00…04-*.sql`) sunt deja montate in `docker-compose.yml` — vor crea bazele, rolele, schema, grant-urile si vor popula seed-ul la **prima initializare**.
+  ```text
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: rabbitmq
+    hostname: rabbitmq-broker
+    env_file: .env
+    environment:
+      RABBITMQ_DEFAULT_USER: appuser
+      RABBITMQ_DEFAULT_PASS: appsecret
+    ports:
+      - "5672:5672" # AMQP protocol
+      - "15672:15672" # Management UI
+    networks:
+      - wine-store-network
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "status"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+  ```
+3. **Servicii in docker-compose.override.yml:**
+
+  ```text
+    services:
+    elasticsearch:
+      image: docker.elastic.co/elasticsearch/elasticsearch:8.14.1
+      container_name: elasticsearch
+      environment:
+        - discovery.type=single-node
+        - xpack.security.enabled=false
+        - ES_JAVA_OPTS=-Xms1g -Xmx1g
+      ports:
+        - "9200:9200"
+      volumes:
+        - esdata:/usr/share/elasticsearch/data
+      healthcheck:
+        test: ["CMD-SHELL", "curl -sf http://localhost:9200 >/dev/null"]
+        interval: 10s
+        timeout: 5s
+        retries: 30
+      networks:
+        - wine-store-network
+
+    kibana:
+      image: docker.elastic.co/kibana/kibana:8.14.1
+      container_name: kibana
+      environment:
+        - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+      ports:
+        - "5601:5601"
+      depends_on:
+        elasticsearch:
+          condition: service_healthy
+      networks:
+        - wine-store-network
+
+  volumes:
+    esdata:
+
+  networks:
+    wine-store-network:
+  ```
+
+3. **Scripturi init DB** (`infra/init/00…04-*.sql`) sunt deja montate in `docker-compose.yml` — vor crea bazele, rolele, schema, grant-urile si vor popula seed-ul la **prima initializare**.
 
 3. **Porneste** totul cu:
 
@@ -179,6 +289,11 @@ wine_store/
      ```bash
      docker compose ps
      ```
+  - **Pornire bootstrap Elasticsearch**
+    ```bash
+    - es-bootstrap.sh → verifică conexiunile la Postgres și ES
+    - rulează initProductsIndex.js și backfillProductsToEs.js dacă indexul e gol
+    ```
 
 4. **Migratii** (daca adaugi altele) se ruleaza automat la startup prin `runMigration()` in `app.js`.
 
@@ -282,7 +397,17 @@ docker compose up -d auth-service
 | POST   | `/payments/webhook` | Webhook Stripe pentru confirmarea platii |
 | GET    | `/health`         | Health check |
 | GET    | `/ready`          | Readiness check |
+
+### API Endpoints principale — Elasticsearch
+
+| Metoda | Path                            | Descriere                                |
+| ------ | ------------------------------- | ---------------------------------------- |
+| GET    | `/search?q=text&size=5`         | Căutare full-text cu facets și highlight |
+| GET    | `/search/autocomplete?q=prefix` | Sugestii rapide bazate pe edge-ngram     |
+
 ---
+
+## Exemple cURL - Product Service
 
 ### Exemplu cURL: Creare produs
 
@@ -310,6 +435,8 @@ curl -i -X POST http://localhost:3001/products/1/images \
   }'
 ```
 
+## Exemple cURL - Auth Service
+
 ### Exemplu cURL: Signup
 
 ```bash
@@ -326,7 +453,7 @@ curl -X POST http://localhost:4000/auth/login \
   -d '{"email": "user@example.com", "password": "pass123"}'
 ```
 
-### Exemple cURL - Order Service
+## Exemple cURL - Order Service
 
 **Adaugare produs in cos**
 
@@ -372,6 +499,41 @@ curl -X POST http://localhost:3002/payments/webhook \
 
 ```bash
 docker exec -it rabbitmq rabbitmqctl list_queues name messages_ready messages_unacknowledged
+```
+
+### Exemple cURL - Search
+
+**Health Check**
+
+```bash
+curl -s http://localhost:3000/health
+```
+
+**Cautare full-text cu highlight**
+
+```bash
+curl -s "http://localhost:3000/search?q=cabernet&size=5" | jq
+```
+
+**Cautare autocomplete**
+
+```bash
+curl -s "http://localhost:3000/search/autocomplete?q=cab" | jq
+```
+
+**Test diacritice**
+
+```bash
+curl -s "http://localhost:3000/search?q=rose&size=5" | jq '.total'
+curl -s "http://localhost:3000/search?q=ros%C3%A9&size=5" | jq '.total'
+```
+
+**Reindexare** - development only
+
+```bash
+curl -X DELETE http://localhost:9200/products-v1
+npm run es:init
+npm run es:backfill
 ```
 ---
 
