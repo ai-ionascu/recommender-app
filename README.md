@@ -22,6 +22,44 @@ Versiunea actuala include un framework basic pentru dashboard Admin si este in c
   - Upload imagini cu preview, înlocuire, stergere, alegere imagine principala
   - Resetare completa a starii formularului si inputurilor dupa submit sau cancel
 
+## Microservices — Order Service
+
+Microserviciul **Order Service** gestioneaza coșurile de cumpărături, comenzile și plățile, cu stocare în **MongoDB**, procesare plăți prin **Stripe** și integrare prin **RabbitMQ** cu celelalte microservicii.
+
+Versiunea actuala include:
+
+- **Cart management**
+  - Adaugare, actualizare, stergere produse in cos
+  - Snapshot de preturi si validare stoc/pret in timp real prin product-service
+
+- **Checkout & Orders**
+  - Creare comanda din cos cu validare suplimentara stoc/pret
+  - Persistenta in Mongo cu schema clara: `Order`, `Cart`, `Payment`, `ProcessedEvent`
+  - Suport pentru paginare, sortare si filtrare comenzi
+
+- **Stripe Payments**
+  - Endpoint `/orders/:id/pay` → creaza PaymentIntent (test mode)
+  - Webhook `/payments/webhook` → actualizeaza `Payment` + marcheaza `Order` ca `paid`
+  - Idempotenta:
+    - `Idempotency-Key` pe client sau generat din `(orderId, amount, currency)`
+    - Deduplicare webhook cu tabela `processed_events`
+
+- **RabbitMQ integration**
+  - Publisher: emite `order.paid` cu detalii comanda catre exchange-ul `events`
+  - Consumer (product-service): scade stocurile din Postgres
+
+- **Endpointuri de baza**
+  - `/cart` → gestionare cos
+  - `/checkout` → plasare comanda
+  - `/orders` → listare, vizualizare comenzi user
+  - `/orders/:id/pay` → creare intent de plata Stripe
+  - `/payments/webhook` → procesare webhook Stripe
+
+- **Altele**
+  - Health-check (`/health`, `/ready`)
+  - Centralizare erori cu `AppError`
+  - Logare structurata ([Cart], [Checkout], [Stripe], [Rabbit])
+
 ## Microservices — Auth Service
 
 Microserviciul **Auth Service** gestioneaza autentificarea, autorizarea si managementul utilizatorilor, cu suport pentru verificarea emailului si resetarea parolei.  
@@ -66,19 +104,12 @@ Versiunea actuala include:
 
 ```text
 wine_store/
-|   |
-│   └── settings.json
 ├── common/
 │   ├── schemas/
 │   └── utils/
 ├── frontend/
 │   ├── Dockerfile
-│   ├── package.json
-│   └── src/
-│       ├── api/
-│       ├── components/
-│       ├── pages/
-│       └── ...
+│   └── src/...
 ├── infra/
 │   └── init/
 │       ├── 00-create-databases-and-roles.sql
@@ -87,68 +118,23 @@ wine_store/
 │       └── 03-init-analytics.sql
 ├── product-service/
 │   ├── Dockerfile
-│   ├── wait-for-db.sh
+│   └── src/...
+├── order-service/
+│   ├── Dockerfile
 │   ├── package.json
 │   └── src/
-│       ├── app.js
-│       ├── config/
-│       │   ├── env.js
-│       │   ├── db.js
-│       │   └── cloudinary.js
+│       ├── models/ (Cart, Order, Payment, ProcessedEvent)
 │       ├── controllers/
-│       │   ├── product.controller.js
-│       │   ├── image.controller.js
-│       │   ├── feature.controller.js
-│       │   ├── review.controller.js
-│       │   └── media.controller.js
-│       ├── db/
-│       │   ├── migrations/
-│       │   └── run-migrations.js
-│       ├── errors/
-│       │   ├── AppError.js
-│       │   └── errorHandler.js
-│       ├── repositories/
-│       │   ├── product.repository.js
-│       │   ├── subtype.repository.js
-│       │   ├── image.repository.js
-│       │   ├── feature.repository.js
-│       │   └── review.repository.js
-│       ├── routes/
-│       │   ├── product.routes.js
-│       │   ├── image.routes.js
-│       │   ├── feature.routes.js
-│       │   ├── review.routes.js
-│       │   └── media.routes.js
 │       ├── services/
-│       │   ├── product.service.js
-│       │   ├── image.service.js
-│       │   ├── feature.service.js
-│       │   ├── review.service.js
-│       │   └── media.service.js
-│       ├── validations/
-│       │   ├── product.validation.js
-│       │   ├── image.validation.js
-│       │   ├── feature.validation.js
-│       │   ├── review.validation.js
-│       │   └── media.validation.js
-│       └── utils/
-│           ├── transaction.js
-│           ├── catchAsync.js
-│           └── slug.js
-├── Dockerfile
-├── wait-for-db.sh
-├── .env
-├── .gitignore
-├── .dockerignore
+│       ├── routes/
+│       ├── utils/
+│       └── config/
+├── auth-service/
+│   ├── Dockerfile
+│   └── src/...
 ├── docker-compose.yml
-├── package.json
-├── package-lock.json
 ├── README.md
-├── arbore_foldere.txt
-├── wine_store.dump
-├── feature.json
-├── images.json
-└── product.json
+└── ...
 ```
 
 ---
@@ -280,6 +266,22 @@ docker compose up -d auth-service
 | PUT    | `/auth/change-email`           | Solicita schimbarea emailului (link pe noul email) |
 | GET    | `/auth/confirm-email-change`   | Confirma noul email din link |
 | POST   | `/auth/logout`                 | Logout utilizator |
+
+### API Endpoints principale — Order Service
+
+| Metoda | Path              | Descriere |
+| ------ | ----------------- | --------- |
+| GET    | `/cart`           | Vizualizare cos curent |
+| POST   | `/cart`           | Adauga produs in cos |
+| PUT    | `/cart/:itemId`   | Actualizeaza cantitatea unui produs din cos |
+| DELETE | `/cart/:itemId`   | Sterge produs din cos |
+| POST   | `/checkout`       | Creare comanda din cos |
+| GET    | `/orders`         | Listare comenzi user logat |
+| GET    | `/orders/:id`     | Vizualizare detalii comanda |
+| POST   | `/orders/:id/pay` | Creare Stripe PaymentIntent |
+| POST   | `/payments/webhook` | Webhook Stripe pentru confirmarea platii |
+| GET    | `/health`         | Health check |
+| GET    | `/ready`          | Readiness check |
 ---
 
 ### Exemplu cURL: Creare produs
@@ -324,6 +326,53 @@ curl -X POST http://localhost:4000/auth/login \
   -d '{"email": "user@example.com", "password": "pass123"}'
 ```
 
+### Exemple cURL - Order Service
+
+**Adaugare produs in cos**
+
+```bash
+curl -X POST http://localhost:3002/cart \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <JWT>" \
+  -d '{
+    "productId": "66c9ab...e3a",
+    "quantity": 2
+  }'
+```
+
+**Checkout**
+
+```bash
+curl -X POST http://localhost:3002/checkout \
+  -H "Authorization: Bearer <JWT>"
+```
+**Creare intent de plata Stripe**
+
+```bash
+curl -X POST http://localhost:3002/orders/<orderId>/pay \
+  -H "Authorization: Bearer <JWT>"
+```
+**Webhook Stripe (simulare din local)**
+
+```bash
+curl -X POST http://localhost:3002/payments/webhook \
+  -H "Content-Type: application/json" \
+  -d '{
+    "id": "evt_test_webhook",
+    "type": "payment_intent.succeeded",
+    "data": {
+      "object": {
+        "id": "pi_test_123",
+        "metadata": { "orderId": "66ca0...f7" }
+      }
+    }
+  }'
+```
+**Verificare coada RabbitMQ**
+
+```bash
+docker exec -it rabbitmq rabbitmqctl list_queues name messages_ready messages_unacknowledged
+```
 ---
 
 ## Seed-uri & Date reale
@@ -352,17 +401,22 @@ curl -X POST http://localhost:4000/auth/login \
    - Documentatie Swagger pentru API
    - Rate limiting pe endpoint-uri sensibile (signup/login/reset-password)
 
-**order Service** – dezvoltare următorul microserviciu:
-- Model și API pentru gestionarea comenzilor
-  - Creare comandă nouă din coșul de cumpărături
-  - Actualizare status comandă (ex: pending, paid, shipped, delivered)
-  - Listare comenzi pentru userul logat și pentru admin
-- Integrare cu **auth-service** pentru identificarea și autorizarea utilizatorilor
-- Gestionare stocuri la plasarea și anularea comenzilor
-- Integrare stub de plată (Stripe sau alt provider în modul test)
-- Salvarea istoricului comenzilor pentru rapoarte și recomandări
-- Endpoint-uri pentru administratori (gestionare comenzi, schimbare status, refund-uri)
-- Pregătire pentru integrarea viitoare cu message broker (RabbitMQ) pentru notificări și actualizări în timp real
+**Frontend**
+  - integrare cos, checkout si order tracking
+  - vizualizare istoricul comenzilor
+
+**Recommender System**
+  - content-based filtering initial
+  - optional: collaborative filtering/hibrid pentru scor academic mai mare
+
+**Search Service**
+  - integrare Elasticsearch pentru cautare full-text si autocomplete
+
+**Documentation**
+  - introducere Swagger/OpenAPI pentru documentarea tuturor serviciilor
+
+**Analytics**
+- serviciu separat pentru rapoarte si KPI
 
 ## Functionalitati planificate
 
