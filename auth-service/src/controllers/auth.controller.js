@@ -1,6 +1,7 @@
 import * as authService from '../services/auth.service.js';
 import { findByToken, deleteToken } from '../models/emailVerification.model.js';
-import { markUserAsVerified } from '../models/user.model.js';
+import { markUserAsVerified, findUserById } from '../models/user.model.js';
+import { listUsers } from '../models/user.model.js';
 
 export const signup = async (req, res) => {
   try {
@@ -45,15 +46,17 @@ export const login = async (req, res) => {
   }
 };
 
-export const getProfile = (req, res) => {
-  const { id, email, role, is_verified } = req.user;
+export const getProfile = async (req, res) => {
+  
+  const userId = req.user?.id || req.user?.sub;
+  if (!userId) return res.status(401).json({ message: 'Unauthorized' });
 
-  res.status(200).json({
-    id,
-    email,
-    role,
-    is_verified,
-  });
+  const u = await findUserById(userId);
+  if (!u) return res.status(404).json({ message: 'Not found' });
+
+  const { id, email, role, is_verified } = u;
+
+  return res.status(200).json({ id, email, role, roles: [role], is_verified });
 };
 
 export const verifyEmail = async (req, res) => {
@@ -147,6 +150,46 @@ export const confirmEmailChange = async (req, res) => {
   } catch (err) {
     console.error('[confirmEmailChange]', err.message);
     res.status(400).json({ message: err.message });
+  }
+};
+
+export const adminList = async (req, res) => {
+  try {
+    // only admin should reach here due to middleware
+    const users = await listUsers();
+    res.status(200).json({ users });
+  } catch (err) {
+    console.error('[auth.controller] adminList error:', err.message);
+    res.status(500).json({ message: 'Failed to list users' });
+  }
+};
+
+export const adminUpdate = async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ message: 'Invalid user id' });
+
+    const { role, is_verified } = req.body;
+    const updated = await updateUserRole(id, { role, is_verified });
+    if (!updated) return res.status(404).json({ message: 'User not found' });
+
+    res.json({ user: updated });
+  } catch (err) {
+    console.error('[auth.controller] adminUpdate error:', err.message);
+    res.status(err.status || 500).json({ message: err.message || 'Internal server error.' });
+  }
+};
+
+export const adminDelete = async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ message: 'Invalid user id' });
+
+    await deleteUserById(id);
+    res.status(204).end();
+  } catch (err) {
+    console.error('[auth.controller] adminDelete error:', err.message);
+    res.status(err.status || 500).json({ message: err.message || 'Internal server error.' });
   }
 };
 

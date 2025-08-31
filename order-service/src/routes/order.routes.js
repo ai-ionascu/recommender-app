@@ -7,13 +7,13 @@ const router = Router();
 // POST /orders/checkout
 router.post('/checkout', OrderController.checkout);
 
-// GET /orders (user: his own / admin: all)
+// GET /orders (user: own / admin: all)
 router.get('/', OrderController.list);
 
 // GET /orders/:id
 router.get('/:id', OrderController.getOne);
 
-// create PaymentIntent (auth required)
+// Create/ensure PaymentIntent
 router.post('/:id/pay', PaymentController.createIntent);
 
 export default router;

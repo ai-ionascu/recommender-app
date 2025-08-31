@@ -16,8 +16,10 @@ export const useProducts = () => {
     setLoading(true);
     setError(null);
     try {
+      // getProducts returns { items, total } or { items: [...] }
       const res = await getProducts();
-      setProducts(Array.isArray(res.data) ? res.data : []);
+      const items = Array.isArray(res) ? res : (res?.items ?? []);
+      setProducts(items);
     } catch (err) {
       setError('Failed to fetch products');
       console.error(err);

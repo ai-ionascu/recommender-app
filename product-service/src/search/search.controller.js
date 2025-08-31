@@ -11,29 +11,32 @@ export async function search(req, res, next) {
   try {
     const {
       q = '',
-      category, country, grape, year, minPrice, maxPrice, inStock,
       sort = 'relevance',
-      page = 1, size = 12
+      page = 1,
+      size = 12,
+      category,
+      country,
+      countries,
+      grape,
+      grapes,
+      year,
+      inStock,
+      minPrice,
+      maxPrice,
     } = req.query;
 
-    const from = Math.max(0, (Number(page) - 1) * Number(size));
+    const toArray = (v) => {
+      if (!v) return [];
+      if (Array.isArray(v)) return v.flatMap(x => String(x).split(','));
+      return String(v).split(',');
+    };
+    const normList = (arr) =>
+      Array.from(new Set(arr.map(s => String(s).trim()).filter(Boolean)));
 
-    const filters = [];
-    if (category) filters.push({ term: { category } });
-    if (country)  filters.push({ term: { country } });
-    if (grape)    filters.push({ term: { 'wines.grape_variety': grape } });
-    if (year)     filters.push({ term: { 'wines.vintage': Number(year) } });
-    if (inStock === 'true') filters.push({ range: { stock: { gt: 0 } } });
-    if (minPrice || maxPrice) {
-      filters.push({
-        range: {
-          price: {
-            gte: minPrice != null ? Number(minPrice) : undefined,
-            lte: maxPrice != null ? Number(maxPrice) : undefined
-          }
-        }
-      });
-    }
+    const countriesArr = normList([ ...toArray(country), ...toArray(countries) ]);
+    const grapesArr    = normList([ ...toArray(grape),   ...toArray(grapes)   ]);
+
+    const from = Math.max(0, (Number(page) - 1) * Number(size));
 
     const term = q.trim();
     const L = term.length;
@@ -51,28 +54,14 @@ export async function search(req, res, next) {
       { term: { 'wines.wine_type': { value: qLower, case_insensitive: true, _name: 'wine_type' } } },
       // features as phrase
       { match_phrase: { 'features.value': { query: term, _name: 'feature_phrase' } } },
-      // prefix on keywords (grape/country/region)
-    //   ...(L >= 3 && !hasDiacritics ? [
-    //     { wildcard: { 'wines.grape_variety': { value: `${term}*`, case_insensitive: true, _name: 'grape_prefix' } } },
-    //     { wildcard: { country:               { value: `${term}*`, case_insensitive: true, _name: 'country_prefix' } } },
-    //     { wildcard: { region:                { value: `${term}*`, case_insensitive: true, _name: 'region_prefix' } } }
-    //   ] : [])
     ] : [];
 
     // fallback diacritics - ascii on keywords (helps rosé -> rose if data is without accents)
     if (term && hasDiacritics && L >= 3) {
-    //   shouldQueries.push(
-    //     { wildcard: { 'wines.grape_variety': { value: `${termNoDiac}*`, case_insensitive: true, _name: 'grape_prefix_ascii' } } },
-    //     { wildcard: { country:               { value: `${termNoDiac}*`, case_insensitive: true, _name: 'country_prefix_ascii' } } },
-    //     { wildcard: { region:                { value: `${termNoDiac}*`, case_insensitive: true, _name: 'region_prefix_ascii' } } }
-    //   );
-
-      // variants on name and features
       shouldQueries.push(
         { match_phrase: { name: { query: termNoDiac, slop: 0, _name: 'name_phrase_ascii' } } },
         { match_phrase: { 'features.value': { query: termNoDiac, _name: 'feature_phrase_ascii' } } }
       );
-
       // ascii fallback for wine_type keyword
       shouldQueries.push(
         { term: { 'wines.wine_type': { value: termNoDiac.toLowerCase(), case_insensitive: true, _name: 'wine_type_ascii' } } }
@@ -113,10 +102,6 @@ export async function search(req, res, next) {
       }
     }
 
-    const must = term
-      ? [{ bool: { should: shouldQueries, minimum_should_match: 1 } }]
-      : [{ match_all: {} }];
-
     let sortSpec;
     switch (sort) {
       case 'price_asc':  sortSpec = [{ price: 'asc' }]; break;
@@ -126,20 +111,59 @@ export async function search(req, res, next) {
       default:           sortSpec = ['_score'];
     }
 
+    const filters = [];
+    if (category) filters.push({ term: { category } });
+
+    if (countriesArr.length) {
+      filters.push({
+        bool: {
+          should: [
+            { terms: { 'country.keyword': countriesArr } },           // exact (case-sensitive)
+            ...countriesArr.map(c => ({ match: { country: c } })),    // analizat (case-insensitive)
+          ],
+          minimum_should_match: 1,
+        }
+      });
+    }
+
+    if (grapesArr.length) {
+      filters.push({
+        bool: {
+          should: [
+            { terms: { 'wines.grape_variety.keyword': grapesArr } },           // exact (case-sensitive)
+            ...grapesArr.map(g => ({ match: { 'wines.grape_variety': g } })),  // analizat (case-insensitive)
+          ],
+          minimum_should_match: 1,
+        }
+      });
+    }
+
+    if (year) {
+      filters.push({ term: { 'wines.vintage': Number(year) } });
+    }
+
+    if (inStock === 'true') {
+      filters.push({ range: { stock: { gt: 0 } } });
+    }
+
+    if (minPrice != null || maxPrice != null) {
+      const range = {};
+      if (minPrice != null) range.gte = Number(minPrice);
+      if (maxPrice != null) range.lte = Number(maxPrice);
+      filters.push({ range: { price: range } });
+    }
+
+    const must = term
+      ? [{ bool: { should: shouldQueries, minimum_should_match: 1 } }]
+      : [{ match_all: {} }];
+
     const body = {
       from,
       size: Number(size),
       query: {
-        function_score: {
-          query: { bool: { must, filter: filters } },
-          score_mode: 'sum',
-          boost_mode: 'sum',
-          functions: [
-            { field_value_factor: { field: 'popularity',        modifier: 'log1p', factor: 1.2, missing: 0 } },
-            { field_value_factor: { field: 'sales_30d',         modifier: 'sqrt',  factor: 2.0, missing: 0 } },
-            { field_value_factor: { field: 'reviews.rating_avg', modifier: 'none',  factor: 0.5, missing: 0 } },
-            { filter: { term: { featured: true } }, weight: 2.0 }
-          ]
+        bool: {
+          must,
+          filter: filters,
         }
       },
       sort: sortSpec,
@@ -151,8 +175,8 @@ export async function search(req, res, next) {
 
       // facets / aggregations
       aggs: {
-        by_country: { terms: { field: 'country', size: 20 } },
-        by_grape:   { terms: { field: 'wines.grape_variety', size: 20 } },
+        by_country: { terms: { field: 'country.keyword', size: 20 } },                 // ← keyword
+        by_grape:   { terms: { field: 'wines.grape_variety.keyword', size: 20 } },     // ← keyword
         price_ranges: {
           range: {
             field: 'price',

@@ -8,6 +8,7 @@ function toNum(n){ const v = Number(n); return Number.isNaN(v) ? null : v; }
 
 export const OrderService = {
   async checkout(userId, bearer) {
+    // IMPORTANT: Do NOT clear the cart here. We will clear it only after payment is confirmed (webhook).
     const session = await mongoose.startSession();
     try {
       session.startTransaction();
@@ -15,6 +16,7 @@ export const OrderService = {
       const cart = await Cart.findOne({ userId }).session(session);
       if (!cart || cart.items.length === 0) throw new AppError('Cart is empty.', 400);
 
+      // Validate stock & recompute total (fresh pricing)
       const validated = [];
       let total = 0;
 
@@ -29,16 +31,28 @@ export const OrderService = {
         total += priceNow * it.qty;
       }
 
-      const [order] = await Order.create([{
-        userId, status: 'pending_payment', currency: 'EUR',
-        totalAmount: total, items: validated
-      }], { session });
+      // Upsert a single pending order for this user:
+      // - If an order is already pending_payment, update items/total.
+      // - Otherwise, create a new one.
+      let order = await Order.findOne({ userId, status: 'pending_payment' }).session(session);
 
-      await Cart.updateOne({ _id: cart._id }, { $set: { items: [] } }, { session });
+      if (order) {
+        order.items = validated;
+        order.totalAmount = total;
+        order.currency = 'EUR';
+        // status stays 'pending_payment'
+        await order.save({ session });
+      } else {
+        [order] = await Order.create([{
+          userId,
+          status: 'pending_payment',
+          currency: 'EUR',
+          totalAmount: total,
+          items: validated
+        }], { session });
+      }
 
       await session.commitTransaction();
-
-      // reload the order to return a populated document
       const full = await Order.findById(order._id).lean();
       return full;
     } catch (e) {

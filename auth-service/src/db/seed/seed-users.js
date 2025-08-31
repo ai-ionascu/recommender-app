@@ -11,11 +11,14 @@ export async function seedUsers() {
     const passwordUser = await hashPassword('user123');
 
     await client.query(`
-      INSERT INTO users (email, password_hash, is_verified)
+      INSERT INTO users (email, password_hash, role, is_verified)
       VALUES 
-        ('admin@example.com', $1, true),
-        ('user@example.com', $2, false)
-      ON CONFLICT (email) DO NOTHING;
+        ('admin@example.com', $1, 'admin', true),
+        ('user@example.com',  $2, 'user',  false)
+      ON CONFLICT (email) DO UPDATE
+        SET role = EXCLUDED.role,
+            password_hash = EXCLUDED.password_hash,
+            is_verified = EXCLUDED.is_verified
     `, [passwordAdmin, passwordUser]);
 
     await client.query('COMMIT');

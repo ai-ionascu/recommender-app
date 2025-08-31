@@ -42,3 +42,28 @@ export const deleteUnverifiedUsersOlderThan = async (minutes = 60) => {
   `;
   await db.query(query);
 };
+
+// list all users (for admin)
+export const listUsers = async () => {
+  const query = `SELECT id, email, role, is_verified, created_at FROM users ORDER BY created_at DESC`;
+  const result = await db.query(query);
+  return result.rows;
+};
+
+export async function updateUserRole(userId, patch = {}) {
+  const sets = [];
+  const vals = [];
+  let idx = 1;
+  if (patch.role != null) { sets.push(`role = $${idx++}`); vals.push(patch.role); }
+  if (patch.is_verified != null) { sets.push(`is_verified = $${idx++}`); vals.push(patch.is_verified); }
+  if (sets.length === 0) return null;
+  vals.push(userId);
+  const q = `UPDATE users SET ${sets.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = $${idx} RETURNING id, email, role, is_verified, created_at`;
+  const { rows } = await db.query(q, vals);
+  return rows[0] || null;
+}
+
+export async function deleteUserById(userId) {
+  await db.query(`DELETE FROM users WHERE id = $1`, [userId]);
+  return true;
+}
