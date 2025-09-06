@@ -43,24 +43,9 @@ export default function Cart() {
   };
 
   const handleCheckout = async () => {
-    setCkError(null);
-    setCkLoading(true);
-    try {
-      // Create a NEW order from the current server cart.
-      const created = await checkout();
-      const id = created?.id || created?._id || created?.orderId;
-      if (!id) throw new Error("Invalid response from checkout.");
-
-      // backend consumed & cleared the server cart - keep UI in sync now
-      await useCartStore.getState().refreshFromServer();
-
-      navigate(`/checkout?orderId=${id}`);
-    } catch (e) {
-      const msg = e?.response?.data?.message || e.message || "Checkout failed";
-      setCkError(msg);
-    } finally {
-      setCkLoading(false);
-    }
+    // Do not call backend from the cart. We just navigate to /checkout,
+    // where the user fills shipping and THEN we call POST /api/orders/checkout.
+    navigate("/checkout");
   };
 
   // Helper: show warning if user is logged-in but client items have no serverItemId

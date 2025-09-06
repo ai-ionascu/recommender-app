@@ -1,9 +1,60 @@
 import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { ensurePaymentIntent, getOrder } from "@/api/orders";
+import { ensurePaymentIntent, getOrder, checkout as checkoutOrder } from "@/api/orders";
 import { loadStripe } from "@stripe/stripe-js";
 import { Elements, CardElement, useStripe, useElements } from "@stripe/react-stripe-js";
 import { useCartStore } from "@/store/cartStore";
+
+// mici utilitare de bani
+function parseMinorFromAny(v) {
+  if (v == null) return null;
+  if (typeof v === "number" && Number.isFinite(v)) {
+    return v > 1000 ? Math.round(v) : Math.round(v * 100);
+  }
+  if (typeof v === "string") {
+    const m = v.match(/[\d,.]+/);
+    if (!m) return null;
+    const num = parseFloat(m[0].replace(",", "."));
+    if (!Number.isFinite(num)) return null;
+    return Math.round(num * 100);
+  }
+  return null;
+}
+function computeOrderTotalCents(order) {
+  if (!order) return 0;
+  const direct =
+    order.subtotalCents ??
+    order.totalCents ??
+    order.paidAmountCents ??
+    order.totals?.subtotalCents ??
+    order.totals?.grandTotalCents ??
+    parseMinorFromAny(order.subtotal) ??
+    parseMinorFromAny(order.total) ??
+    parseMinorFromAny(order.amount) ??
+    parseMinorFromAny(order.totals?.grandTotal);
+  if (direct != null) return direct;
+
+  let sum = 0;
+  const items = order.items ?? order.lines ?? order.cart?.items ?? [];
+  if (Array.isArray(items)) {
+    for (const it of items) {
+      const qty = it.qty ?? it.quantity ?? 1;
+      const unitMinor =
+        it.priceCents ??
+        parseMinorFromAny(it.unitPrice) ??
+        parseMinorFromAny(it.price) ??
+        0;
+      sum += unitMinor * qty;
+    }
+  }
+  return sum;
+}
+function formatOrderTotal(order) {
+  const totalCents = computeOrderTotalCents(order);
+  const currency = (order?.currency ?? "EUR").toUpperCase();
+  const value = (totalCents ?? 0) / 100;
+  return `${value.toFixed(2)} ${currency}`;
+}
 
 async function waitForPaid(orderId, { tries = 12, delay = 900 } = {}) {
   for (let i = 0; i < tries; i++) {
@@ -18,7 +69,7 @@ async function waitForPaid(orderId, { tries = 12, delay = 900 } = {}) {
 
 const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY);
 
-// Confirm only the provided clientSecret (doesn't hit /:id/pay here).
+/** Stripe payment form (confirmă doar clientSecret-ul primit) */
 function PaymentForm({ clientSecret, onProcessingChange, onSuccess, onError, disabled }) {
   const stripe = useStripe();
   const elements = useElements();
@@ -46,7 +97,6 @@ function PaymentForm({ clientSecret, onProcessingChange, onSuccess, onError, dis
         return;
       }
 
-      // Fallback: if Stripe returns an error but PI is actually 'succeeded', proceed.
       if (res?.error) {
         try {
           const pi = await stripe.retrievePaymentIntent(clientSecret);
@@ -69,8 +119,10 @@ function PaymentForm({ clientSecret, onProcessingChange, onSuccess, onError, dis
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4 mt-4">
-      <CardElement options={{ hidePostalCode: true }} />
+    <form onSubmit={handleSubmit} className="space-y-4 mt-2">
+      <div className="px-3 py-2 border rounded bg-white">
+        <CardElement options={{ hidePostalCode: true }} />
+      </div>
       <button
         type="submit"
         className="px-4 py-2 rounded bg-green-600 text-white hover:bg-green-700 disabled:opacity-50"
@@ -79,6 +131,70 @@ function PaymentForm({ clientSecret, onProcessingChange, onSuccess, onError, dis
         {processing ? "Confirming order..." : "Pay"}
       </button>
     </form>
+  );
+}
+
+/** Cartolină read-only cu adresa de livrare */
+function ReadonlyShippingCard({ shipping, onEdit }) {
+  if (!shipping) return null;
+  const rows = [
+    shipping.full_name ?? shipping.name,
+    shipping.line1 ?? shipping.address1,
+    shipping.line2 ?? shipping.address2,
+    [shipping.zip, shipping.city].filter(Boolean).join(" "),
+    shipping.country,
+    shipping.phone ? `Phone: ${shipping.phone}` : null,
+  ].filter(Boolean);
+
+  return (
+    <div className="bg-gray-50 rounded-lg border p-3">
+      <div className="flex items-center justify-between">
+        <div className="font-medium">Shipping address</div>
+        {onEdit ? (
+          <button
+            type="button"
+            onClick={onEdit}
+            className="text-sm underline"
+            title="Edit shipping address"
+          >
+            Edit shipping address
+          </button>
+        ) : null}
+      </div>
+      <div className="text-sm mt-1 whitespace-pre-line leading-6">
+        {rows.join("\n")}
+      </div>
+    </div>
+  );
+}
+
+/** Rezumatul de „Success” mai aspectuos */
+function SuccessSummary({ order, shipping }) {
+  return (
+    <div className="bg-white rounded-2xl shadow p-6 space-y-4">
+      <div className="p-3 rounded border border-green-200 bg-green-50 text-green-800">
+        Payment received. Your order is confirmed.
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <h3 className="font-semibold mb-2">Order</h3>
+          <div className="text-sm space-y-1">
+            <div><span className="text-gray-500">Order ID:</span> <span className="font-mono">{order?._id || order?.id}</span></div>
+            <div><span className="text-gray-500">Status:</span> {order?.status ?? "paid"}</div>
+            <div><span className="text-gray-500">Total:</span> {formatOrderTotal(order)}</div>
+          </div>
+        </div>
+        <div>
+          <h3 className="font-semibold mb-2">Shipping address</h3>
+          <ReadonlyShippingCard shipping={shipping} />
+        </div>
+      </div>
+
+      <div className="pt-2">
+        <a href="/catalog" className="text-sm underline">Back to catalog</a>
+      </div>
+    </div>
   );
 }
 
@@ -96,11 +212,22 @@ export default function Checkout() {
   const [intentId, setIntentId] = useState(null);
   const [isProcessing, setIsProcessing] = useState(false);
 
-  // Anti StrictMode – ensure we only request a PI once.
-  const createdOnceRef = useRef(false);
+  // shipping local (folosit la creare comandă, dar și ca fallback pentru afișare)
+  const [shipping, setShipping] = useState({
+    name: "",
+    phone: "",
+    address1: "",
+    address2: "",
+    city: "",
+    zip: "",
+    country: "FR"
+  });
+  const [submittingShipping, setSubmittingShipping] = useState(false);
 
+  const createdOnceRef = useRef(false);
   const displayStatus = order?.status ?? status;
 
+  // 1) Dacă avem orderId în URL → citim comanda și ne asigurăm de PaymentIntent
   useEffect(() => {
     if (!orderId) return;
     let ignore = false;
@@ -110,14 +237,12 @@ export default function Checkout() {
         setError(null);
         setStatus("loading");
 
-        // 1) Fetch order
         const data = await getOrder(orderId);
         if (ignore) return;
 
         setOrder(data);
         setStatus(data.status || "pending_payment");
 
-        // Already paid → sync cart & stop showing form
         if (data.status === "paid") {
           await useCartStore.getState().refreshFromServer();
           setClientSecret(null);
@@ -126,7 +251,6 @@ export default function Checkout() {
           return;
         }
 
-        // 2) Ensure PaymentIntent ONCE
         if (createdOnceRef.current) {
           setStatus("ready");
           return;
@@ -140,7 +264,6 @@ export default function Checkout() {
         setIntentId(intent_id);
         setStatus("ready");
       } catch (e) {
-        // If backend returns 409 "Order already paid"
         if (e?.response?.status === 409) {
           try {
             const data = await getOrder(orderId);
@@ -154,43 +277,74 @@ export default function Checkout() {
         }
         setError(e?.response?.data?.message || e.message || "Checkout failed");
         setStatus("error");
-        createdOnceRef.current = false; // allow retry via page refresh
+        createdOnceRef.current = false;
       }
     })();
 
     return () => { ignore = true; };
   }, [orderId]);
 
-  // After Stripe confirm: do not set local "paid" unless server says so.
-  // Hide the form (clear clientSecret), refresh cart, and wait for the server.
+  // 2) Nu avem încă orderId → creăm comanda din cart, trimițând adresa
+  const handleCreateOrderWithShipping = async (e) => {
+    e.preventDefault();
+    setError(null);
+    setSubmittingShipping(true);
+    try {
+      const data = await checkoutOrder({
+        full_name: shipping.name,
+        phone: shipping.phone,
+        line1: shipping.address1,
+        line2: shipping.address2,
+        city: shipping.city,
+        zip: shipping.zip,
+        country: shipping.country,
+      });
+      const newOrderId = data?.orderId || data?.order?._id;
+      const cs = data?.clientSecret;
+
+      if (!newOrderId) throw new Error("Order creation failed.");
+
+      const search = new URLSearchParams({ orderId: newOrderId }).toString();
+      navigate(`/checkout?${search}`, { replace: true });
+
+      if (cs) {
+        setClientSecret(cs);
+        setIntentId(null);
+        setStatus("ready");
+      } else {
+        createdOnceRef.current = false;
+      }
+    } catch (err) {
+      setError(err?.response?.data?.message || err.message || "Failed to create order.");
+    } finally {
+      setSubmittingShipping(false);
+    }
+  };
+
+  const onShippingChange = (e) => {
+    const { name, value } = e.target;
+    setShipping(s => ({ ...s, [name]: value }));
+  };
+
+  // 3) După confirmarea Stripe → nu setăm local „paid” decât după ce serverul raportează asta
   const handlePaid = async () => {
     try {
       setStatus("finalizing");
-
-      // Remove the form so the user cannot try to pay again (payment already confirmed on Stripe)
       setClientSecret(null);
       setIntentId(null);
-
-      // Refresh cart UI (server should have consumed cart on success path)
       try { await useCartStore.getState().refreshFromServer(); } catch {}
 
-      // Poll the backend for the REAL order status
       const updated = await waitForPaid(orderId, { tries: 15, delay: 800 });
       if (updated?.status === "paid") {
         setOrder(updated);
         setStatus("paid");
-
-        // clear local cart (zustand store + persisted guest cart)
-        try { await useCartStore.getState().clear(); } catch (e) { console.warn('[checkout] clear store failed', e); }
-        try { localStorage.removeItem("cart"); } catch (e) { console.warn('[checkout] remove local cart failed', e); }
-
+        try { await useCartStore.getState().clear(); } catch {}
+        try { localStorage.removeItem("cart"); } catch {}
         return;
       }
-
       setStatus("awaiting_confirmation");
-    } catch {
-      // Even if something goes wrong while polling, do not flip to "paid" locally.
-      console.warn('[checkout] handlePaid error', err);
+    } catch (err) {
+      console.warn("[checkout] handlePaid error", err);
       setStatus("awaiting_confirmation");
     }
   };
@@ -205,6 +359,9 @@ export default function Checkout() {
     </div>
   );
 
+  // sursa de adevăr pt afișarea adresei pe Payment: server > local fallback
+  const shippingForDisplay = order?.shipping || shipping;
+
   return (
     <div className="p-6 max-w-3xl mx-auto">
       <h1 className="text-2xl font-bold mb-4">Checkout</h1>
@@ -218,42 +375,100 @@ export default function Checkout() {
         {order && (
           <div className="mb-2">
             <span className="font-semibold">Total:</span>{" "}
-            {Number(order.totalAmount ?? order.total ?? order?.totals?.grandTotal ?? 0).toFixed(2)}{" "}
-            {order.currency ?? "EUR"}
+            {formatOrderTotal(order)}
           </div>
         )}
 
-        {/* Show the payment form only when we have a clientSecret and the order isn't paid */}
-        {clientSecret && displayStatus !== "paid" && (
-          <Elements stripe={stripePromise} options={{ clientSecret }}>
-            <PaymentForm
-              clientSecret={clientSecret}
-              onProcessingChange={setIsProcessing}
-              onSuccess={handlePaid}
-              onError={setError}
-              disabled={displayStatus === "paid"}
-            />
-          </Elements>
-        )}
-
-        {stripeTestInfo}
-
-        {/* Back to cart – visible only on the actual payment screen; disabled while processing */}
-        {clientSecret && displayStatus !== "paid" && (
-          <div className="flex gap-3 mt-4">
+        {/* STEP 1: shipping form (când NU există orderId) */}
+        {!orderId && (
+          <form onSubmit={handleCreateOrderWithShipping} className="space-y-3 mt-2">
+            <h2 className="text-lg font-semibold">Shipping address</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-sm mb-1">Full name</label>
+                <input name="name" value={shipping.name} onChange={onShippingChange}
+                  className="w-full border rounded p-2" required />
+              </div>
+              <div>
+                <label className="block text-sm mb-1">Phone</label>
+                <input name="phone" value={shipping.phone} onChange={onShippingChange}
+                  className="w-full border rounded p-2" required />
+              </div>
+              <div className="md:col-span-2">
+                <label className="block text-sm mb-1">Address line 1</label>
+                <input name="address1" value={shipping.address1} onChange={onShippingChange}
+                  className="w-full border rounded p-2" required />
+              </div>
+              <div className="md:col-span-2">
+                <label className="block text-sm mb-1">Address line 2 (optional)</label>
+                <input name="address2" value={shipping.address2} onChange={onShippingChange}
+                  className="w-full border rounded p-2" />
+              </div>
+              <div>
+                <label className="block text-sm mb-1">City</label>
+                <input name="city" value={shipping.city} onChange={onShippingChange}
+                  className="w-full border rounded p-2" required />
+              </div>
+              <div>
+                <label className="block text-sm mb-1">ZIP</label>
+                <input name="zip" value={shipping.zip} onChange={onShippingChange}
+                  className="w-full border rounded p-2" required />
+              </div>
+              <div className="md:col-span-2">
+                <label className="block text-sm mb-1">Country</label>
+                <input name="country" value={shipping.country} onChange={onShippingChange}
+                  className="w-full border rounded p-2" required />
+              </div>
+            </div>
             <button
-              className="px-3 py-2 rounded bg-gray-100 hover:bg-gray-200 disabled:opacity-50"
-              onClick={() => navigate("/cart")}
-              disabled={isProcessing}
+              type="submit"
+              className="px-4 py-2 rounded bg-black text-white disabled:opacity-60"
+              disabled={submittingShipping}
             >
-              Back to cart
+              {submittingShipping ? "Saving address..." : "Save address & continue"}
             </button>
-          </div>
+          </form>
         )}
 
+        {/* STEP 2: PAYMENT – când avem clientSecret */}
+        {clientSecret && displayStatus !== "paid" && (
+          <>
+            {/* cartolină cu adresa + butonul de edit */}
+            <ReadonlyShippingCard
+              shipping={shippingForDisplay}
+              onEdit={() => navigate("/checkout")} // revenire la pasul de shipping
+            />
+
+            <div className="mt-3">
+              <Elements stripe={stripePromise} options={{ clientSecret }}>
+                <PaymentForm
+                  clientSecret={clientSecret}
+                  onProcessingChange={setIsProcessing}
+                  onSuccess={handlePaid}
+                  onError={setError}
+                  disabled={displayStatus === "paid"}
+                />
+              </Elements>
+            </div>
+
+            {stripeTestInfo}
+
+            <div className="flex gap-3 mt-4">
+              <button
+                className="px-3 py-2 rounded bg-gray-100 hover:bg-gray-200 disabled:opacity-50"
+                onClick={() => navigate("/cart")}
+                disabled={isProcessing}
+              >
+                Back to cart
+              </button>
+            </div>
+          </>
+        )}
+
+        {/* STEP 3: SUCCESS (confirmare) */}
         {displayStatus === "paid" && (
-          <div className="mt-4 p-3 rounded bg-green-50 text-green-700">
-            Payment received. Your order is confirmed.
+          <div className="mt-4">
+            <SuccessSummary order={order} shipping={order?.shipping || shipping} />
           </div>
         )}
       </div>

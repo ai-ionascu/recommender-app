@@ -9,6 +9,7 @@ import {
 
 export const useProducts = () => {
   const [products, setProducts] = useState([]);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
@@ -16,10 +17,18 @@ export const useProducts = () => {
     setLoading(true);
     setError(null);
     try {
-      // getProducts returns { items, total } or { items: [...] }
-      const res = await getProducts();
-      const items = Array.isArray(res) ? res : (res?.items ?? []);
-      setProducts(items);
+
+      const res = await getProducts({ page: 1, limit: 9999 });
+
+      if (Array.isArray(res)) {
+        setProducts(res);
+        setTotal(res.length);
+      } else {
+        const items = res?.items ?? [];
+        const t = Number.isFinite(res?.total) ? Number(res.total) : items.length;
+        setProducts(items);
+        setTotal(t);
+      }
     } catch (err) {
       setError('Failed to fetch products');
       console.error(err);
@@ -72,6 +81,7 @@ export const useProducts = () => {
 
   return {
     products,
+    total,
     loading,
     error,
     fetchProducts,

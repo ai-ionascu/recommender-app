@@ -16,21 +16,24 @@ export const ProductController = {
   }),
 
   getOne: catchAsync(async (req, res) => {
-    const id = Number(req.params.productId);
+    const rawId = req.params.productId ?? req.params.id;
+    const id = Number(rawId);
     if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'Invalid product id' });
     const product = await ProductService.getProduct(id);
     res.json(product);
   }),
 
   update: catchAsync(async (req, res) => {
-    const id = Number(req.params.productId);
+    const rawId = req.params.productId ?? req.params.id;
+    const id = Number(rawId);
     if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'Invalid product id' });
     const updated = await ProductService.updateProduct(id, req.body);
     res.json(updated);
   }),
 
   delete: catchAsync(async (req, res) => {
-    const id = Number(req.params.productId);
+    const rawId = req.params.productId ?? req.params.id;
+    const id = Number(rawId);
     if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'Invalid product id' });
     await ProductService.deleteProduct(id);
     res.status(204).end();

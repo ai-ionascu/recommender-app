@@ -1,83 +1,101 @@
-import mongoose from 'mongoose';
-import { Cart } from '../models/cart.mongo.js';
+// order-service/src/services/order.service.js
 import { Order } from '../models/order.mongo.js';
 import { AppError } from '../utils/errors.js';
-import { fetchProduct } from './productClient.js';
+import { PaymentService } from './payment.service.js';
+import { validateShipping } from '../utils/validateShipping.js';
 
-function toNum(n){ const v = Number(n); return Number.isNaN(v) ? null : v; }
+// Defensive number parser
+function toNumber(n) {
+  const v = Number(n);
+  return Number.isNaN(v) ? null : v;
+}
 
 export const OrderService = {
-  async checkout(userId, bearer) {
-    // IMPORTANT: Do NOT clear the cart here. We will clear it only after payment is confirmed (webhook).
-    const session = await mongoose.startSession();
-    try {
-      session.startTransaction();
+  /**
+   * Creates or updates a pending order for the user using the current server-side cart.
+   * - Validates and saves the shipping address
+   * - Copies cart line items into the order (price = priceSnapshot at checkout time)
+   * - Ensures/updates a Stripe PaymentIntent and pins its id on the order
+   */
+  async checkout({ userId, userEmail, cart, shipping }) {
+    const normalizedShipping = validateShipping(shipping);
 
-      const cart = await Cart.findOne({ userId }).session(session);
-      if (!cart || cart.items.length === 0) throw new AppError('Cart is empty.', 400);
+    // Compute subtotal from cart items (cart uses priceSnapshot)
+    const subtotal = (cart?.items || []).reduce((sum, it) => {
+      const p = toNumber(it.priceSnapshot);
+      const q = toNumber(it.qty);
+      return sum + (p && q ? p * q : 0);
+    }, 0);
 
-      // Validate stock & recompute total (fresh pricing)
-      const validated = [];
-      let total = 0;
-
-      for (const it of cart.items) {
-        const product = await fetchProduct(it.productId, bearer);
-        if (!product?.id) throw new AppError(`Product ${it.productId} not found.`, 404);
-        const stock = toNum(product.stock);
-        const priceNow = toNum(product.price);
-        if (stock == null || stock < it.qty) throw new AppError(`Insufficient stock for product ${it.productId}.`, 409);
-        if (priceNow == null || priceNow < 0) throw new AppError(`Invalid price for product ${it.productId}.`, 400);
-        validated.push({ productId: it.productId, qty: it.qty, price: priceNow });
-        total += priceNow * it.qty;
-      }
-
-      // Upsert a single pending order for this user:
-      // - If an order is already pending_payment, update items/total.
-      // - Otherwise, create a new one.
-      let order = await Order.findOne({ userId, status: 'pending_payment' }).session(session);
-
-      if (order) {
-        order.items = validated;
-        order.totalAmount = total;
-        order.currency = 'EUR';
-        // status stays 'pending_payment'
-        await order.save({ session });
-      } else {
-        [order] = await Order.create([{
-          userId,
-          status: 'pending_payment',
-          currency: 'EUR',
-          totalAmount: total,
-          items: validated
-        }], { session });
-      }
-
-      await session.commitTransaction();
-      const full = await Order.findById(order._id).lean();
-      return full;
-    } catch (e) {
-      await session.abortTransaction();
-      throw e;
-    } finally {
-      session.endSession();
+    if (!cart?.items || cart.items.length === 0 || !subtotal || subtotal <= 0) {
+      throw new AppError('Cart is empty or total amount is zero.', 400);
     }
+
+    // Shape order items (we keep name/image optional; schema does not require them)
+    const orderItems = (cart.items || []).map(it => ({
+      productId: String(it.productId),
+      name: it.name || '',          // optional
+      image: it.image || '',        // optional
+      price: toNumber(it.priceSnapshot) ?? 0,
+      qty: toNumber(it.qty) ?? 0
+    }));
+
+    // Upsert a single pending order for this user
+    let order = await Order.findOne({ userId, status: 'pending_payment' });
+    if (order) {
+      order.items = orderItems;
+      order.subtotal = subtotal;
+      order.currency = order.currency || 'eur';
+      order.shipping = normalizedShipping;
+      if (userEmail && !order.userEmail) order.userEmail = userEmail;
+      await order.save();
+    } else {
+      order = await Order.create({
+        userId,
+        userEmail: userEmail || undefined,
+        status: 'pending_payment',
+        items: orderItems,
+        subtotal,
+        currency: 'eur',
+        shipping: normalizedShipping
+      });
+    }
+
+    // Ensure a Stripe PaymentIntent exists and matches the current amount
+    const requester = { id: userId, role: 'user' };
+    const pi = await PaymentService.ensurePaymentIntent(String(order._id), requester, null);
+
+    // Persist PI id on order (field name in the model is stripePaymentIntentId)
+    if (pi?.intent_id) {
+      order.stripePaymentIntentId = pi.intent_id;
+      await order.save();
+    }
+
+    return {
+      orderId: String(order._id),
+      clientSecret: pi?.client_secret ?? null,
+      order: order.toObject ? order.toObject() : order
+    };
   },
 
   async getOrder(orderId, requester) {
     const ord = await Order.findById(orderId).lean();
     if (!ord) throw new AppError('Order not found.', 404);
-    if (requester.role !== 'admin' && ord.userId !== requester.id) {
+    const isAdmin = String(requester?.role).toLowerCase() === 'admin';
+    if (!isAdmin && ord.userId !== requester.id) {
       throw new AppError('Forbidden', 403);
     }
     return ord;
   },
 
   async listPaged(requester, { limit = 20, offset = 0, status, sort = '-createdAt' }) {
-    const filter = requester.role === 'admin' ? {} : { userId: requester.id };
+    const filter = String(requester?.role).toLowerCase() === 'admin'
+      ? {}
+      : { userId: requester.id };
     if (status) filter.status = status;
 
-    // sanitize sort (accepting only known fields)
-    const allowedSort = new Set(['createdAt', '-createdAt', 'totalAmount', '-totalAmount', 'status', '-status']);
+    // Whitelist sorts
+    const allowedSort = new Set(['createdAt', '-createdAt', 'subtotal', '-subtotal', 'status', '-status']);
     const sortExp = allowedSort.has(sort) ? sort : '-createdAt';
 
     const [items, total] = await Promise.all([

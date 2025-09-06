@@ -3,7 +3,9 @@ import { verifyRecaptcha } from '../utils/recaptcha.js';
 
 export const requireCaptcha = async (req, res, next) => {
   try {
-    if (String(process.env.CAPTCHA_ENABLED).toLowerCase() === 'false') {
+    const enabled = String(process.env.CAPTCHA_ENABLED ?? 'false').toLowerCase() === 'true';
+    if (!enabled) {
+      // Dev mode or explicitly disabled
       return next();
     }
 

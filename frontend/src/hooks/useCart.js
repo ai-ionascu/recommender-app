@@ -49,21 +49,28 @@ export function useCart() {
 
   // Add item
   const addItem = async (product, qty = 1) => {
-    if (!token) { store.addLocal(product, qty); return; }
+    if (!token) {
+      useCartStore.getState().addLocal(product, qty);
+      return;
+    }
     const productId = product.id ?? product._id;
     await addToCart({ productId, qty });
     const fresh = await getCart();
-    store.setFromServer(fresh);
+    useCartStore.getState().setFromServer(fresh);
   };
 
   // Update qty (server needs itemId; local uses productId)
   const updateQty = async (productId, qty) => {
-    if (!token) { store.updateLocal(productId, qty); return; }
-    const item = store.items.find(i => i.productId === productId);
+    if (!token) {
+      useCartStore.getState().updateLocal(productId, qty);
+      return;
+    }
+    const s = useCartStore.getState();
+    const item = s.items.find(i => i.productId === productId);
+
     if (!item?.serverItemId) {
-      // refetch and retry once
       const fresh = await getCart();
-      store.setFromServer(fresh);
+      useCartStore.getState().setFromServer(fresh);
       const again = useCartStore.getState().items.find(i => i.productId === productId);
       if (!again?.serverItemId) return;
       await updateCartItem(again.serverItemId, qty);
@@ -71,29 +78,32 @@ export function useCart() {
       await updateCartItem(item.serverItemId, qty);
     }
     const fresh = await getCart();
-    store.setFromServer(fresh);
+    useCartStore.getState().setFromServer(fresh);
   };
 
   // Remove item
   const removeItem = async (productId) => {
-    if (!token) { store.removeLocal(productId); return; }
-    const item = store.items.find(i => i.productId === productId);
+    if (!token) {
+      useCartStore.getState().removeLocal(productId);
+      return;
+    }
+    const item = useCartStore.getState().items.find(i => i.productId === productId);
     if (item?.serverItemId) {
       await removeCartItem(item.serverItemId);
-      const fresh = await getCart();
-      store.setFromServer(fresh);
-    } else {
-      const fresh = await getCart();
-      store.setFromServer(fresh);
     }
+    const fresh = await getCart();
+    useCartStore.getState().setFromServer(fresh);
   };
 
   // Clear cart
   const clear = async () => {
-    if (!token) { store.clear(); return; }
+    if (!token) {
+      useCartStore.getState().clear();
+      return;
+    }
     await apiClearCart();
-    const fresh = await getCart(); // usually empty
-    store.setFromServer(fresh);
+    const fresh = await getCart();
+    useCartStore.getState().setFromServer(fresh);
   };
 
   return { items, loading, error, total };

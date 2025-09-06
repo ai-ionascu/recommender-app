@@ -37,9 +37,18 @@ export default defineConfig({
         rewrite: p => p.replace(/^\/api/, ''),
       },
       '/auth': {
-        target: 'http://localhost:4000',
-        changeOrigin: true,
-      },
+       target: 'http://localhost:4000',
+       changeOrigin: true,
+       secure: false,
+       bypass(req) {
+         const isHtml = req.headers.accept && req.headers.accept.includes('text/html');
+         const uiRoutes = ['/auth/reset', '/auth/reset-request', '/auth/verify'];
+         // Only serve SPA for browser navigation; let XHR pass through to backend
+         if (isHtml && uiRoutes.some((p) => req.url.startsWith(p))) {
+           return '/index.html';
+         }
+       },
+     },
     },
   },
   resolve: {

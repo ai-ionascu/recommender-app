@@ -117,7 +117,7 @@ services:
       - ./infra/init:/docker-entrypoint-initdb.d:ro
     working_dir: /app
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:4000/health"]
+      test: ["CMD", "curl", "-fsS", "http://localhost:4000/health"]
       interval: 10s
       timeout: 5s
       retries: 10

@@ -5,7 +5,7 @@ import { ImageRepository } from '../repositories/image.repository.js';
 export const ImageService = {
 
   async list(productId, client = null) {
-    return await ImageRepository.getImages(productId);
+    return await ImageRepository.getImages(productId, client || undefined);
   },
 
   async add(productId, images, client = null) {
@@ -113,7 +113,7 @@ export const ImageService = {
         await ImageRepository.setMain(client, productId, mainImage.id);
     } else {
         // dacă e nou adăugată și nu are id
-        const updatedImages = await ImageRepository.getImages(productId);
+        const updatedImages = await ImageRepository.getImages(productId, client);
         const autoMain = updatedImages.find(img => img.is_main);
         if (!autoMain && updatedImages.length > 0) {
         await ImageRepository.clearMain(client, productId);

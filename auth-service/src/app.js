@@ -22,4 +22,13 @@ app.get('/health', (req, res) => {
 startCleanupJob();
 startTokenCleanupJob();
 
+// Global error handler (last)
+app.use((err, req, res, _next) => {
+  console.error('[auth-service] Unhandled error:', err?.message || err);
+  const status = Number.isInteger(err?.status) ? err.status : 500;
+  if (!res.headersSent) {
+    res.status(status).json({ message: err?.message || 'Internal server error.' });
+  }
+});
+
 export default app;

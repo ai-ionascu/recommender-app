@@ -55,3 +55,22 @@ export async function sendEmail({ to, subject, html }) {
         throw error;
     }  
 }
+
+export function buildVerifyLink({ frontendBaseUrl, tokenRaw }) {
+  const base = (frontendBaseUrl || 'http://localhost:8080').replace(/\/+$/, '');
+  const u = new URL('/auth/verify', base);
+  u.searchParams.set('token', encodeURIComponent(tokenRaw));
+  return u.toString();
+}
+
+// Helper
+export async function sendEmailVerification({ to, tokenRaw, baseUrl }) {
+  const verifyUrl = buildVerifyLink({ frontendBaseUrl: baseUrl, tokenRaw });
+  const subject = 'Verify your email';
+  const html = `
+    <p>Welcome!</p>
+    <p>Please verify your email by clicking the link below:</p>
+    <p><a href="${verifyUrl}">${verifyUrl}</a></p>
+  `;
+  return sendEmail({ to, subject, html });
+}

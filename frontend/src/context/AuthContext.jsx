@@ -40,14 +40,15 @@ export function AuthProvider({ children }) {
         const { data } = await authHttp.get("/profile");
         if (mounted) setUser(normalizeUser(data));
       } catch (e) {
-        if (e?.response?.status === 401) {
+        // orice eroare => token invalid sau user inexistent; curățăm zgomotul
+        const status = e?.response?.status;
+        if (status === 401 || status === 404 || status === 403) {
           localStorage.removeItem("token");
           setAuthToken(null);
-          if (mounted) setUser(null);
         } else {
-          console.error("[auth] profile error", e);
-          if (mounted) setUser(null);
+          console.warn("[auth] profile fetch failed", status, e?.message);
         }
+        if (mounted) setUser(null);
       } finally {
         if (mounted) setLoading(false);
       }
@@ -56,8 +57,9 @@ export function AuthProvider({ children }) {
     return () => { mounted = false; };
   }, [token]);
 
-  const login = async (email, password) => {
-    const { data } = await authHttp.post("/login", { email, password });
+
+  const login = async (email, password, captchaToken) => {
+    const { data } = await authHttp.post("/login", { email, password, captchaToken });
     localStorage.setItem("token", data.token);
     setAuthToken(data.token);
     setToken(data.token);

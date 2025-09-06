@@ -1,6 +1,7 @@
 // src/controllers/media.controller.js
 import { MediaService } from '../services/media.service.js';
 import catchAsync from '../utils/catchAsync.js';
+import AppError from '../errors/AppError.js';
 
 export const MediaController = {
   searchImages: catchAsync(async (req, res) => {
