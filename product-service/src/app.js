@@ -27,12 +27,33 @@ app.use(express.json());
 app.use(cors({
   origin: [
     'http://localhost:3000',
-    'http://frontend:80',
+    'http://frontend',
     'http://127.0.0.1:3000'
   ],
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  exposedHeaders: [
+    'X-Search-Handler',
+    'X-Facets-Global-Countries',
+    'X-Facets-Wine-Countries',
+    'X-Facets-Spirits-Countries',
+    'X-Facets-Beer-Countries'
+  ]
 }));
+
+// define once and reuse
+const EXPOSE_HEADERS = 'X-Search-Handler, X-Facets-Global-Countries, X-Facets-Wine-Countries, X-Facets-Spirits-Countries, X-Facets-Beer-Countries';
+const searchHeaders = (_req, res, next) => {
+  res.setHeader('Access-Control-Expose-Headers', EXPOSE_HEADERS);
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
+  res.setHeader('Pragma', 'no-cache');
+  next();
+};
+
+app.use((_, res, next) => {
+  res.setHeader('Access-Control-Expose-Headers', EXPOSE_HEADERS);
+  next();
+});
 
 // apply database migrations before handling any requests - only in development!!
 // seed the database with initial products
@@ -47,13 +68,15 @@ app.get('/health', (_req, res) => res.json({ status: 'OK' }));
 
 // mount routes
 app.use('/products', productRoutes);
+app.use('/api/products', productRoutes);
 app.use('/products/:id/images', imageRoutes);
 app.use('/products/:id/features',featureRoutes);
 app.use('/products/:id/reviews', reviewRoutes);
 app.use('/products/images', mediaRoutes);
 
 // mount search routes
-app.use('/search', searchRouter);
+app.use('/search', searchHeaders, searchRouter);
+app.use('/api/search', searchHeaders, searchRouter);
 
 // error handler
 app.use(errorHandler);
@@ -74,10 +97,10 @@ app.listen(config.port, '0.0.0.0', () => {
       await waitForElasticsearch();
       startSearchSyncWorker().catch(err => console.error('[SearchSync] failed to start:', err));
     } catch (e) {
-      console.error('[Elasticsearch] not reachable, search sync worker not started:', e.message);
+      console.log('[Elasticsearch] not reachable, search sync worker not started:', e.message);
     }
     startOrderPaidConsumer().catch(err => console.error('[Rabbit consumer] failed:', err));
   } catch (e) {
-    console.error('[Bootstrap] background init failed:', e);
+    console.log('[Bootstrap] background init failed:', e);
   }
 })();

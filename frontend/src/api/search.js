@@ -1,4 +1,3 @@
-// frontend/src/api/search.js
 import { http } from "@/api/http";
 
 /** Convert array to CSV; undefined for empty values */
@@ -51,83 +50,58 @@ function dedupeItems(arr) {
 }
 
 /** Build request params + serializer from options (without firing the request). */
-function buildParamsAndSerializer(options = {}) {
+export function buildParamsAndSerializer(options = {}) {
   const {
-    q,
-    sort,
-    page = 1,
-    size = 12,
-    minPrice,
-    maxPrice,
-    inStock,
+    q, sort, page, size,
+    category, country, grape, wine_type, beer_style,
+    spirit_type, accessory_type, compatible_with_product_type,
+    minPrice, maxPrice, inStock,
+    year, // optional
+  } = options || {};
 
-    // facet arrays (preferred)
-    category,   // ['wine','beer',...]
-    country,    // ['italy','france',...]
-    grape,      // ['Merlot','Pinot Noir',...]
-    wine_type,  // ['red','white',...]
-    beer_style, // ['ipa','pilsner',...]
+  const params = {};
+  if (q != null && String(q).trim() !== "") params.q = q;
+  if (sort) params.sort = sort;
+  if (page != null) params.page = Number(page);
+  if (size != null) params.size = Number(size);
+  if (typeof inStock === "boolean") params.inStock = inStock;
+  if (minPrice != null && String(minPrice) !== "") params.minPrice = Number(minPrice);
+  if (maxPrice != null && String(maxPrice) !== "") params.maxPrice = Number(maxPrice);
+  if (year != null && String(year).trim() !== "") params.year = Number(year);
 
-    year,
-    ...rest
-  } = options;
-
-  // Base params
-  const params = {
-    q: q || undefined,
-    sort: sort || undefined,
-    page,
-    size,
-    minPrice: minPrice ?? undefined,
-    maxPrice: maxPrice ?? undefined,
-    inStock: typeof inStock === "boolean" ? inStock : undefined,
-    year: year || undefined,
-    ...rest,
-  };
-
-  // ---- CATEGORY (server-friendly)
-  if (Array.isArray(category)) {
-    if (category.length === 1) {
-      params.category = category[0];
-    } else if (category.length > 1) {
-      params.category = category.join(","); // CSV într-un singur param
-      params.categories = params.category;  // alias compat, dacă backend îl preferă
-    }
+  // CATEGORY
+  if (Array.isArray(category) && category.length) {
+    params.category = category.join(",");
   } else if (typeof category === "string" && category.trim()) {
     params.category = category.trim();
   }
 
-  // ---- OTHER FACETS: repeated params + CSV companion
-  const facetArrays = { country, grape, wine_type, beer_style };
-
-  for (const [k, val] of Object.entries(facetArrays)) {
-    if (Array.isArray(val) && val.length) {
-      params[k] = val;                    // repeated ?k=v1&k=v2
-      params[`${k}_csv`] = val.join(","); // companion CSV (compat)
-    } else if (typeof val === "string" && val.trim()) {
-      params[k] = [val.trim()];
-      params[`${k}_csv`] = val.trim();
-    }
+  // OTHER FACETS (arrays -> repeated params + CSV companion)
+  const facetArrays = {
+    country, grape, wine_type, beer_style, spirit_type, accessory_type,
+    compatible_with_product_type
+  };
+  for (const [k, v] of Object.entries(facetArrays)) {
+    if (!v) continue;
+    const arr = Array.isArray(v) ? v : [v];
+    const cleaned = arr.map(String).map(s => s.trim()).filter(Boolean);
+    if (!cleaned.length) continue;
+    params[k] = cleaned;                    // repeated ?k=v1&k=v2
+    params[`${k}_csv`] = cleaned.join(","); // optional CSV
   }
-
-  // Compat: unii backends așteaptă pluralele pentru CSV
   if (params.country_csv) params.countries = params.country_csv;
   if (params.grape_csv)   params.grapes    = params.grape_csv;
 
-  // Custom serializer: arrays → repeated params; rest normal
   const paramsSerializer = {
     serialize: (p) => {
       const usp = new URLSearchParams();
-      Object.entries(p).forEach(([key, value]) => {
-        if (value == null || value === "") return;
-        if (Array.isArray(value)) {
-          for (const v of value) usp.append(key, String(v));
-        } else {
-          usp.append(key, String(value));
-        }
-      });
+      for (const [key, value] of Object.entries(p)) {
+        if (value == null || value === "") continue;
+        if (Array.isArray(value)) value.forEach(v => usp.append(key, String(v)));
+        else usp.append(key, String(value));
+      }
       return usp.toString();
-    },
+    }
   };
 
   return { params, paramsSerializer };
@@ -136,17 +110,67 @@ function buildParamsAndSerializer(options = {}) {
 /** Category universe we care about (adjust if you add new ones). */
 const CANDIDATE_CATEGORIES = ["wine", "beer", "spirits", "accessories"];
 
+/**
+ * Keep only facet keys that make sense for a given category.
+ * Shared filters like q / price / inStock / country remain;
+ * category-specific ones are pruned if they don’t apply.
+ */
+function pruneOptionsForCategory(options = {}, cat) {
+  const base = {
+    q: options.q,
+    sort: options.sort,
+    page: options.page,
+    size: options.size,
+    inStock: options.inStock,
+    minPrice: options.minPrice,
+    maxPrice: options.maxPrice,
+    year: options.year,
+    // shared facet across categories in your API
+    country: options.country,
+    category: cat,
+  };
+
+  if (cat === "wine") {
+    return {
+      ...base,
+      grape: options.grape,
+      wine_type: options.wine_type,
+      // nothing beer/spirits/accessories specific
+    };
+  }
+  if (cat === "spirits") {
+    return {
+      ...base,
+      spirit_type: options.spirit_type,
+    };
+  }
+  if (cat === "beer") {
+    return {
+      ...base,
+      beer_style: options.beer_style,
+    };
+  }
+  if (cat === "accessories") {
+    return {
+      ...base,
+      accessory_type: options.accessory_type,
+      compatible_with_product_type: options.compatible_with_product_type,
+    };
+  }
+  // unknown category → keep only shared filters
+  return base;
+}
+
 /** Probe totals per category using the same filters (except category). */
 async function probeCategoryTotals(baseOptions) {
   const probes = [];
   for (const cat of CANDIDATE_CATEGORIES) {
-    const { params: p1, paramsSerializer: s1 } = buildParamsAndSerializer({
-      ...baseOptions,
-      category: cat,
-      page: 1,
-      size: 1, // we only need 'total'
-    });
-    // Nu duplicăm aliasurile
+    const pruned = pruneOptionsForCategory(
+      { ...baseOptions, page: 1, size: 1 },
+      cat
+    );
+    const { params: p1, paramsSerializer: s1 } = buildParamsAndSerializer(pruned);
+   
     delete p1.categories;
 
     probes.push(
@@ -187,12 +211,11 @@ export async function searchProducts(options = {}) {
 
     const perCatResults = [];
     for (const cat of rawCategory) {
-      const { params: p1, paramsSerializer: s1 } = buildParamsAndSerializer({
-        ...options,
-        category: cat, // singular
-        page: 1,
-        size: needCount,
-      });
+      const pruned = pruneOptionsForCategory(
+        { ...options, page: 1, size: needCount },
+        cat
+      );
+      const { params: p1, paramsSerializer: s1 } = buildParamsAndSerializer(pruned);
       delete p1.categories;
 
       try {

@@ -1,61 +1,64 @@
+// frontend/src/components/facets/PriceFacet.jsx
 import { useState, useEffect } from "react";
 
 /**
- * Price facet with min/max inputs and an Apply button.
- * - valueMin/valueMax are the current filters from parent
- * - onApply({ min, max }) is called when user clicks Apply
- * - Optional: you can pass suggestedMin/suggestedMax to prefill placeholders
+ * Compact price facet with min/max inputs and Apply/Clear buttons.
+ * Props: { title, valueMin, valueMax, onApply({min,max}), dense }
  */
 export default function PriceFacet({
   title = "Price",
   valueMin,
   valueMax,
-  suggestedMin,
-  suggestedMax,
   onApply,
+  dense = true,
 }) {
   const [min, setMin] = useState(valueMin ?? "");
   const [max, setMax] = useState(valueMax ?? "");
 
-  // keep inputs in sync if parent changes (e.g., when clearing filters)
-  useEffect(() => { setMin(valueMin ?? ""); }, [valueMin]);
-  useEffect(() => { setMax(valueMax ?? ""); }, [valueMax]);
+  useEffect(() => setMin(valueMin ?? ""), [valueMin]);
+  useEffect(() => setMax(valueMax ?? ""), [valueMax]);
 
-  const apply = () => {
-    const m = min === "" ? undefined : Number(min);
-    const M = max === "" ? undefined : Number(max);
-    onApply?.({ min: m, max: M });
-  };
-
-  const clear = () => {
-    setMin("");
-    setMax("");
-    onApply?.({ min: undefined, max: undefined });
-  };
+  const inputCls = dense
+    ? "w-full rounded-md border border-gray-200 px-2 py-1 text-sm"
+    : "w-full rounded-lg border border-gray-200 px-3 py-2";
+  const btnCls = "px-2 py-1 text-sm rounded-md bg-gray-100 hover:bg-gray-200";
 
   return (
-    <div className="mb-6">
-      <h3 className="font-semibold mb-2">{title}</h3>
-      <div className="flex items-center gap-2">
+    <div className={dense ? "space-y-2" : "space-y-3"}>
+      <div className={dense ? "text-xs font-semibold mb-1" : "text-sm font-semibold mb-2"}>
+        {title}
+      </div>
+      <div className="grid grid-cols-2 gap-2">
         <input
           type="number"
-          className="border rounded p-1 w-24"
-          placeholder={suggestedMin != null ? String(suggestedMin) : "min"}
+          placeholder="min"
+          className={inputCls}
           value={min}
           onChange={(e) => setMin(e.target.value)}
         />
-        <span>–</span>
         <input
           type="number"
-          className="border rounded p-1 w-24"
-          placeholder={suggestedMax != null ? String(suggestedMax) : "max"}
+          placeholder="max"
+          className={inputCls}
           value={max}
           onChange={(e) => setMax(e.target.value)}
         />
       </div>
-      <div className="flex gap-2 mt-2">
-        <button className="px-2 py-1 bg-gray-200 rounded" onClick={apply}>Apply</button>
-        <button className="px-2 py-1 bg-gray-100 rounded" onClick={clear}>Clear</button>
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          className={btnCls}
+          onClick={() => onApply?.({ min: min === "" ? undefined : Number(min), max: max === "" ? undefined : Number(max) })}
+        >
+          Apply
+        </button>
+        <button
+          type="button"
+          className={btnCls}
+          onClick={() => { setMin(""); setMax(""); onApply?.({ min: undefined, max: undefined }); }}
+        >
+          Clear
+        </button>
       </div>
     </div>
   );

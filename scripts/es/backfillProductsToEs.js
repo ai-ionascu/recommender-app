@@ -7,20 +7,42 @@ import { Client } from '@elastic/elasticsearch';
 const {
   ES_URL = 'http://localhost:9200',
   ES_ALIAS = 'products',
-  DATABASE_URL
+  DATABASE_URL: RAW_DATABASE_URL,
+  // optional fallbacks if DATABASE_URL is not provided
+  PG_HOST,
+  PG_PORT = 5432,
+  PG_USER,
+  PG_PASSWORD,
+  PG_DB
 } = process.env;
 
+// Build a DATABASE_URL from PG_* envs if RAW_DATABASE_URL is missing
+function buildDatabaseUrlFallback() {
+  if (!PG_HOST || !PG_USER || !PG_PASSWORD || !PG_DB) return null;
+  const enc = encodeURIComponent;
+  return `postgres://${enc(PG_USER)}:${enc(PG_PASSWORD)}@${PG_HOST}:${PG_PORT}/${enc(PG_DB)}`;
+}
+
+const DATABASE_URL = RAW_DATABASE_URL || buildDatabaseUrlFallback();
+
 if (!DATABASE_URL) {
-  console.error('Missing DATABASE_URL in env');
+  console.error(
+    'Missing DATABASE_URL in env (and PG_* fallback not complete). ' +
+    'Set DATABASE_URL="postgres://USER:PASS@HOST:5432/DB" before running.'
+  );
   process.exit(1);
 }
 
-const es = new Client({ node: ES_URL });
+console.log(`[Backfill] Using DATABASE_URL=${DATABASE_URL.replace(/:(?:[^@]+)@/, ':***@')}`);
+console.log(`[Backfill] ES_URL=${ES_URL} alias=${ES_ALIAS}`);
 
+const es = new Client({ node: ES_URL, tls: { rejectUnauthorized: false } });
 const pgClient = new pg.Client({ connectionString: DATABASE_URL });
 
-// SQL: quering products + images + features + reviews + category details
-// using LEFT JOINs to ensure all products are included even if no images/features/reviews
+// Page size for backfill
+const PAGE_SIZE = 500;
+
+// Query: products + category sub-records (+ images/features/reviews)
 const BASE_SQL = `
 SELECT
   p.id, p.name, p.slug, p.price, p.category, p.country, p.region,
@@ -95,32 +117,26 @@ ORDER BY p.id
 LIMIT $2
 `;
 
-// transformation SQL line -> ES doc (aligned with mapping)
+/** Merge-safe builder: builds category subdocs and a richer search_blob. */
 function toEsDoc(row) {
-  const features = row.features || [];
-  const images = row.images || [];
-  const reviews = row.reviews || { rating_avg: null, review_count: 0 };
+  const features = Array.isArray(row.features) ? row.features : [];
+  const images   = Array.isArray(row.images)   ? row.images   : [];
+  const reviews  = row.reviews || { rating_avg: null, review_count: 0 };
 
-  const parts = [
-    row.name, row.country, row.region,
-    row.description, row.highlight,
-    row.wines?.grape_variety,
-    ...features.map(f => `${f.label} ${f.value || ''}`)
-  ].filter(Boolean);
-
-  return {
+  // Build category sub-docs defensively (in case SQL returned partials)
+  const doc = {
     id: row.id,
     name: row.name,
     slug: row.slug,
     price: Number(row.price),
     category: row.category,
-    country: row.country,
-    region: row.region,
-    description: row.description,
-    highlight: row.highlight,
-    stock: row.stock,
+    country: row.country ?? null,
+    region: row.region ?? null,
+    description: row.description ?? null,
+    highlight: row.highlight ?? null,
+    stock: row.stock ?? 0,
     alcohol_content: row.alcohol_content != null ? Number(row.alcohol_content) : null,
-    volume_ml: row.volume_ml,
+    volume_ml: row.volume_ml ?? null,
     featured: !!row.featured,
     created_at: row.created_at,
     updated_at: row.updated_at,
@@ -134,44 +150,58 @@ function toEsDoc(row) {
     beers: row.beers || null,
     accessories: row.accessories || null,
 
-    search_blob: parts.join(' | '),
-
-    popularity: 0,   // initial 0, will be updated from order.paid
-    sales_30d: 0     // initial 0, will be updated from order.paid
+    popularity: 0,
+    sales_30d: 0
   };
+
+  // Enrich search_blob with all relevant category fields
+  const parts = [
+    row.name, row.country, row.region, row.description, row.highlight,
+  ];
+
+  if (doc.wines) {
+    parts.push(doc.wines.grape_variety, doc.wines.wine_type, doc.wines.appellation);
+  }
+  if (doc.spirits) {
+    parts.push(doc.spirits.spirit_type, doc.spirits.cask_type);
+  }
+  if (doc.beers) {
+    parts.push(doc.beers.style, doc.beers.brewery, doc.beers.fermentation_type);
+  }
+  if (doc.accessories) {
+    parts.push(doc.accessories.accessory_type, doc.accessories.compatible_with_product_type, doc.accessories.material);
+  }
+  for (const f of features) parts.push(`${f.label} ${f.value ?? ''}`);
+
+  doc.search_blob = parts.filter(Boolean).join(' | ');
+  return doc;
 }
 
-// bulk helper (in batches of 500)
 async function bulkIndex(rows) {
   if (!rows.length) return;
-
   const body = [];
   for (const r of rows) {
     body.push({ index: { _index: ES_ALIAS, _id: r.id } });
     body.push(toEsDoc(r));
   }
-
   const resp = await es.bulk({ refresh: 'true', body });
   if (resp.errors) {
-    // detailed logging for the first errors
     const errs = resp.items.filter(i => i.index && i.index.error).slice(0, 5);
     console.error('Bulk had errors:', JSON.stringify(errs, null, 2));
     throw new Error('Bulk indexing failed');
   }
 }
 
-async function runBackfill({ pageSize = 500 } = {}) {
+async function runBackfill({ pageSize = PAGE_SIZE } = {}) {
   await pgClient.connect();
   console.log(`[Backfill] Start -> ES: ${ES_URL}, index/alias: ${ES_ALIAS}`);
 
   let lastId = 0;
   let total = 0;
 
-  // simple pagination by ID (assumes SERIAL incremental IDs)
   while (true) {
     const { rows } = await pgClient.query(BASE_SQL, [lastId, pageSize]);
     if (rows.length === 0) break;
-
     await bulkIndex(rows);
     lastId = rows[rows.length - 1].id;
     total += rows.length;

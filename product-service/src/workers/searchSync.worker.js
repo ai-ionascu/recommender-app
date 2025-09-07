@@ -13,13 +13,12 @@ const {
 } = process.env;
 
 if (!DATABASE_URL) {
-  console.warn('[SearchSync] DATABASE_URL lipsă — fallback doar pe payload-ul de eveniment.');
+  console.warn('[SearchSync] DATABASE_URL missing — will fallback to ES merge on upsert.');
 }
 
 const pgClient = DATABASE_URL ? new pg.Client({ connectionString: DATABASE_URL }) : null;
 
-// sql querying a single product with all details - aligned with the backfill
-
+// Single-product SELECT (aligned with backfill)
 const ONE_PRODUCT_SQL = `
 SELECT
   p.id, p.name, p.slug, p.price, p.category, p.country, p.region,
@@ -92,32 +91,25 @@ LEFT JOIN accessories a  ON a.product_id = p.id
 WHERE p.id = $1
 `;
 
-// transforming SQL row to ES document
+/** Build ES doc (same semantics as backfill) */
 function toEsDoc(row) {
-  const features = row.features || [];
-  const images = row.images || [];
-  const reviews = row.reviews || { rating_avg: null, review_count: 0 };
+  const features = Array.isArray(row.features) ? row.features : [];
+  const images   = Array.isArray(row.images)   ? row.images   : [];
+  const reviews  = row.reviews || { rating_avg: null, review_count: 0 };
 
-  const parts = [
-    row.name, row.country, row.region,
-    row.description, row.highlight,
-    row.wines?.grape_variety,
-    ...(Array.isArray(features) ? features.map(f => `${f.label} ${f.value || ''}`) : [])
-  ].filter(Boolean);
-
-  return {
+  const doc = {
     id: row.id,
     name: row.name,
     slug: row.slug,
     price: Number(row.price),
     category: row.category,
-    country: row.country,
-    region: row.region,
-    description: row.description,
-    highlight: row.highlight,
-    stock: row.stock,
+    country: row.country ?? null,
+    region: row.region ?? null,
+    description: row.description ?? null,
+    highlight: row.highlight ?? null,
+    stock: row.stock ?? 0,
     alcohol_content: row.alcohol_content != null ? Number(row.alcohol_content) : null,
-    volume_ml: row.volume_ml,
+    volume_ml: row.volume_ml ?? null,
     featured: !!row.featured,
     created_at: row.created_at,
     updated_at: row.updated_at,
@@ -131,51 +123,108 @@ function toEsDoc(row) {
     beers: row.beers || null,
     accessories: row.accessories || null,
 
-    search_blob: parts.join(' | '),
-
-    // dynamic signals — will be modified by order.paid/update later
     popularity: row.popularity ?? 0,
     sales_30d: row.sales_30d ?? 0
   };
+
+  const parts = [row.name, row.country, row.region, row.description, row.highlight];
+  if (doc.wines) {
+    parts.push(doc.wines.grape_variety, doc.wines.wine_type, doc.wines.appellation);
+  }
+  if (doc.spirits) {
+    parts.push(doc.spirits.spirit_type, doc.spirits.cask_type);
+  }
+  if (doc.beers) {
+    parts.push(doc.beers.style, doc.beers.brewery, doc.beers.fermentation_type);
+  }
+  if (doc.accessories) {
+    parts.push(doc.accessories.accessory_type, doc.accessories.compatible_with_product_type, doc.accessories.material);
+  }
+  for (const f of features) parts.push(`${f.label} ${f.value ?? ''}`);
+  doc.search_blob = parts.filter(Boolean).join(' | ');
+
+  return doc;
 }
 
-// helper to fetch product from DB if DATABASE_URL is set
+/** Fetch product row from DB (full join) */
 async function fetchProductFromDb(productId) {
   if (!pgClient) return null;
   const { rows } = await pgClient.query(ONE_PRODUCT_SQL, [productId]);
   return rows[0] || null;
 }
 
-// helper to upsert product document in ES from DB or payload
+/** Safe merge with existing ES doc to avoid dropping category subdocs when DB is unavailable. */
+async function mergeWithExistingEsDoc(id, partial) {
+  try {
+    const resp = await es.get({ index: INDEX_ALIAS, id });
+    const existing = resp?._source || {};
+    return { ...existing, ...partial };
+  } catch {
+    return partial;
+  }
+}
+
+/** Upsert that NEVER drops category subdocs:
+ * - Prefer DB row with full joins
+ * - Fallback: merge event payload over existing ES doc (preserve subdocs)
+ */
 async function upsertProductDoc(payload) {
+  const p = payload.product || payload;
+  const id = p?.id || p?.productId;
+  if (!id) throw new Error('upsertProductDoc: missing id in payload');
 
-  // payload can be { product: {...} } or direct doc with id
-  const maybe = payload.product || payload;
+  let row = await fetchProductFromDb(id);
 
-  let row = maybe;
-  if (!maybe || typeof maybe !== 'object' || !('name' in maybe)) {
-
-    // minimalist payload -> fetch from DB
-    row = await fetchProductFromDb(maybe.id || maybe.productId || payload.id);
-    if (!row) throw new Error(`Product not found for upsert (payload has only ids)`);
+  if (!row) {
+    // DB not available or row missing: merge payload over existing ES doc
+    // IMPORTANT: do NOT remove subdocs; keep existing 'wines/spirits/beers/accessories'
+    const safe = await mergeWithExistingEsDoc(id, p);
+    row = safe;
+    // If category subdoc can be built from flat fields (rare), do it defensively:
+    if (safe.category === 'wine' && !safe.wines) {
+      safe.wines = {
+        wine_type: safe.wine_type ?? null,
+        grape_variety: safe.grape_variety ?? null,
+        vintage: safe.vintage ?? null,
+        appellation: safe.appellation ?? null
+      };
+    } else if (safe.category === 'spirits' && !safe.spirits) {
+      safe.spirits = {
+        spirit_type: safe.spirit_type ?? null,
+        age_statement: safe.age_statement ?? null,
+        distillation_year: safe.distillation_year ?? null,
+        cask_type: safe.cask_type ?? null
+      };
+    } else if (safe.category === 'beer' && !safe.beers) {
+      safe.beers = {
+        style: safe.style ?? null,
+        ibu: safe.ibu ?? null,
+        fermentation_type: safe.fermentation_type ?? null,
+        brewery: safe.brewery ?? null
+      };
+    } else if (safe.category === 'accessories' && !safe.accessories) {
+      safe.accessories = {
+        accessory_type: safe.accessory_type ?? null,
+        material: safe.material ?? null,
+        compatible_with_product_type: safe.compatible_with_product_type ?? null
+      };
+    }
   }
 
   const doc = toEsDoc(row);
   await indexDoc(doc.id, doc, { refresh: 'false' });
 }
 
-// helperer to delete product document in ES
+/** Delete in ES */
 async function deleteProductDoc(payload) {
   const id = payload.id || payload.productId;
   if (!id) throw new Error('deleteProductDoc: missing id');
   await deleteDoc(id);
 }
 
-// helper to increment counters on order.paid
-
+/** Increment counters on order.paid */
 async function bumpCountersFromOrder(order) {
   if (!order?.items || !Array.isArray(order.items)) return;
-  // painless update per item
   for (const item of order.items) {
     const pid = item.productId || item.product_id || item.id;
     const qty = Number(item.qty || item.quantity || 1);
@@ -192,16 +241,15 @@ async function bumpCountersFromOrder(order) {
           ctx._source.sales_30d += params.s;
         `,
         params: { p: qty, s: qty }
-      }
+      },
+      // doc_as_upsert could be used, but we handle 404 below to preserve subdocs
     }).catch(async (err) => {
-
-      // if doc not yet existing (order event came before product create), try to build it from DB and retry
       if (err?.meta?.statusCode === 404) {
         const row = await fetchProductFromDb(pid);
         if (row) {
           const baseDoc = toEsDoc(row);
           baseDoc.popularity = (baseDoc.popularity ?? 0) + qty;
-          baseDoc.sales_30d = (baseDoc.sales_30d ?? 0) + qty;
+          baseDoc.sales_30d  = (baseDoc.sales_30d  ?? 0) + qty;
           await indexDoc(pid, baseDoc, { refresh: 'false' });
         }
       } else {
@@ -211,7 +259,7 @@ async function bumpCountersFromOrder(order) {
   }
 }
 
-// start worker
+/** Start worker */
 export async function startSearchSyncWorker() {
   await waitForElasticsearch();
   if (pgClient) await pgClient.connect().catch(() => null);
@@ -221,7 +269,6 @@ export async function startSearchSyncWorker() {
 
   await ch.assertExchange(RABBITMQ_EXCHANGE, 'topic', { durable: true });
 
-  // dedicated and persistent queue for search worker
   const queueName = 'search-sync-q';
   await ch.assertQueue(queueName, { durable: true });
   await ch.bindQueue(queueName, RABBITMQ_EXCHANGE, 'product.created');
@@ -229,7 +276,6 @@ export async function startSearchSyncWorker() {
   await ch.bindQueue(queueName, RABBITMQ_EXCHANGE, 'product.deleted');
   await ch.bindQueue(queueName, RABBITMQ_EXCHANGE, 'order.paid');
 
-  // processing 10 messages in parallel
   ch.prefetch(10);
 
   ch.consume(queueName, async (msg) => {
@@ -256,9 +302,8 @@ export async function startSearchSyncWorker() {
       ch.ack(msg);
     } catch (err) {
       console.error('[SearchSync] Error handling', rk, err?.message || err);
- 
-      // if unrecoverable error on payload, avoid infinite retry
-      ch.nack(msg, false, false); // dead-letter (if DLX) or drop
+      // Avoid infinite retry on bad payloads
+      ch.nack(msg, false, false);
     }
   });
 

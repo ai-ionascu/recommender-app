@@ -1,290 +1,212 @@
-import { es, INDEX_ALIAS } from './esClient.js';
+// search.controller.js
+// Exposes: search(req,res) and autocomplete(req,res)
 
-/**
- GET /search
- Query params:
-    q, category, country, grape, year, minPrice, maxPrice, inStock (t/f),
-    sort = relevance|price_asc|price_desc|popularity|newest,
-    page 1..., size default 12
- */
-export async function search(req, res, next) {
-  try {
-    const {
-      q = '',
-      sort = 'relevance',
-      page = 1,
-      size = 12,
-      category,
-      country,
-      countries,
-      grape,
-      grapes,
-      year,
-      inStock,
-      minPrice,
-      maxPrice,
-    } = req.query;
+import { es } from "../search/esClient.js";
 
-    const toArray = (v) => {
-      if (!v) return [];
-      if (Array.isArray(v)) return v.flatMap(x => String(x).split(','));
-      return String(v).split(',');
-    };
-    const normList = (arr) =>
-      Array.from(new Set(arr.map(s => String(s).trim()).filter(Boolean)));
+// Small helper: safe number
+const N = (v, d) => {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : d;
+};
 
-    const countriesArr = normList([ ...toArray(country), ...toArray(countries) ]);
-    const grapesArr    = normList([ ...toArray(grape),   ...toArray(grapes)   ]);
+// Build ES query from request
+function buildQuery(req) {
+  const {
+    q,
+    sort,
+    page = 1,
+    size = 12,
+    inStock,
+    minPrice,
+    maxPrice,
+    year,
 
-    const from = Math.max(0, (Number(page) - 1) * Number(size));
+    // facets
+    category,
+    country, grape, wine_type, beer_style,
+    spirit_type, accessory_type, compatible_with_product_type,
+  } = req.query;
 
-    const term = q.trim();
-    const L = term.length;
-    const qLower = term.toLowerCase();
+  // pagination
+  const from = (N(page, 1) - 1) * N(size, 12);
+  const sizeNum = N(size, 12);
 
-    // fallback without diacritics (wildcard/term not analyzing query)
-    const termNoDiac = term.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-    const hasDiacritics = term && termNoDiac !== term;
+  // normalize helpers: each can be sent as ?k=v1&k=v2 OR comma CSV
+  const normArr = (v, csvAltKey) => {
+    const a = Array.isArray(v) ? v : (typeof v === "string" ? v.split(",") : []);
+    const b = Array.isArray(req.query[csvAltKey]) ? req.query[csvAltKey] : (req.query[csvAltKey] || "").split(",");
+    const merged = [...a, ...b].map(String).map(s => s.trim()).filter(Boolean);
+    return Array.from(new Set(merged));
+  };
 
-    // no prefix on name - handled by autocomplete
-    const shouldQueries = term ? [
-      // name as exact phrase (analyzed)
-      { match_phrase: { name: { query: term, slop: 0, _name: 'name_phrase' } } },
-      // wine_type exact keyword
-      { term: { 'wines.wine_type': { value: qLower, case_insensitive: true, _name: 'wine_type' } } },
-      // features as phrase
-      { match_phrase: { 'features.value': { query: term, _name: 'feature_phrase' } } },
-    ] : [];
+  const must = [];
+  const filter = [];
 
-    // fallback diacritics - ascii on keywords (helps rosé -> rose if data is without accents)
-    if (term && hasDiacritics && L >= 3) {
-      shouldQueries.push(
-        { match_phrase: { name: { query: termNoDiac, slop: 0, _name: 'name_phrase_ascii' } } },
-        { match_phrase: { 'features.value': { query: termNoDiac, _name: 'feature_phrase_ascii' } } }
-      );
-      // ascii fallback for wine_type keyword
-      shouldQueries.push(
-        { term: { 'wines.wine_type': { value: termNoDiac.toLowerCase(), case_insensitive: true, _name: 'wine_type_ascii' } } }
-      );
-    }
-
-    // fuzzy typo tolerance when useful
-    if (term && L <= 20) {
-      const fuzzyFields = [
-        'name^6',
-        'search_blob^3',
-        'description',
-        'highlight',
-        'features.value^2',
-        'wines.grape_variety^2',
-        'country',
-        'region'
-      ];
-      shouldQueries.push({
-        multi_match: {
-          query: term,
-          type: 'most_fields',
-          fuzziness: 'AUTO',
-          fields: fuzzyFields,
-          _name: 'fuzzy_multi_match'
-        }
-      });
-      if (hasDiacritics) {
-        shouldQueries.push({
-          multi_match: {
-            query: termNoDiac,
-            type: 'most_fields',
-            fuzziness: 'AUTO',
-            fields: fuzzyFields,
-            _name: 'fuzzy_multi_match_ascii'
-          }
-        });
-      }
-    }
-
-    let sortSpec;
-    switch (sort) {
-      case 'price_asc':  sortSpec = [{ price: 'asc' }]; break;
-      case 'price_desc': sortSpec = [{ price: 'desc' }]; break;
-      case 'popularity': sortSpec = [{ sales_30d: 'desc' }, { popularity: 'desc' }]; break;
-      case 'newest':     sortSpec = [{ created_at: 'desc' }]; break;
-      default:           sortSpec = ['_score'];
-    }
-
-    const filters = [];
-    if (category) filters.push({ term: { category } });
-
-    if (countriesArr.length) {
-      filters.push({
-        bool: {
-          should: [
-            { terms: { 'country.keyword': countriesArr } },           // exact (case-sensitive)
-            ...countriesArr.map(c => ({ match: { country: c } })),    // analizat (case-insensitive)
-          ],
-          minimum_should_match: 1,
-        }
-      });
-    }
-
-    if (grapesArr.length) {
-      filters.push({
-        bool: {
-          should: [
-            { terms: { 'wines.grape_variety.keyword': grapesArr } },           // exact (case-sensitive)
-            ...grapesArr.map(g => ({ match: { 'wines.grape_variety': g } })),  // analizat (case-insensitive)
-          ],
-          minimum_should_match: 1,
-        }
-      });
-    }
-
-    if (year) {
-      filters.push({ term: { 'wines.vintage': Number(year) } });
-    }
-
-    if (inStock === 'true') {
-      filters.push({ range: { stock: { gt: 0 } } });
-    }
-
-    if (minPrice != null || maxPrice != null) {
-      const range = {};
-      if (minPrice != null) range.gte = Number(minPrice);
-      if (maxPrice != null) range.lte = Number(maxPrice);
-      filters.push({ range: { price: range } });
-    }
-
-    const must = term
-      ? [{ bool: { should: shouldQueries, minimum_should_match: 1 } }]
-      : [{ match_all: {} }];
-
-    const body = {
-      from,
-      size: Number(size),
-      query: {
-        bool: {
-          must,
-          filter: filters,
-        }
-      },
-      sort: sortSpec,
-      _source: [
-        'id','slug','name','price','stock','country','region','category',
-        'images','reviews','wines','spirits','beers','accessories',
-        'popularity','sales_30d','featured','created_at'
-      ],
-
-      // facets / aggregations
-      aggs: {
-        by_country: { terms: { field: 'country.keyword', size: 20 } },                 // ← keyword
-        by_grape:   { terms: { field: 'wines.grape_variety.keyword', size: 20 } },     // ← keyword
-        price_ranges: {
-          range: {
-            field: 'price',
-            ranges: [
-              { to: 30 }, { from: 30, to: 60 }, { from: 60, to: 100 }, { from: 100 }
-            ]
-          }
-        }
-      },
-
-      // highlight (including grape_variety)
-      highlight: {
-        fields: {
-          name: {},
-          description: {},
-          'features.value': {},
-          'wines.grape_variety': {}
-        },
-        number_of_fragments: 0,
-        pre_tags: ['<mark>'],
-        post_tags: ['</mark>']
-      }
-    };
-
-    const resp = await es.search({ index: INDEX_ALIAS, body });
-
-    const aggs = resp.aggregations || {};
-    const items = (resp.hits.hits || []).map(h => ({
-      _score: h._score,
-      highlight: h.highlight || null,
-      ...h._source
-    }));
-
-    res.json({
-      total: resp.hits.total?.value ?? 0,
-      items,
-      facets: {
-        country: aggs.by_country?.buckets || [],
-        grape:   aggs.by_grape?.buckets || [],
-        price:   aggs.price_ranges?.buckets || []
+  if (q && String(q).trim()) {
+    must.push({
+      multi_match: {
+        query: q,
+        fields: [
+          "name^4",
+          "description^2",
+          "highlight^3",
+          "country^3",
+          "region^2",
+          "search_blob",
+        ],
+        type: "best_fields",
+        operator: "and",
       }
     });
+  }
+
+  const cat = normArr(category, "categories");
+  if (cat.length) filter.push({ terms: { category: cat } });
+
+  const countries  = normArr(country, "countries");
+  const grapes     = normArr(grape, "grapes");
+  const wineTypes  = normArr(wine_type);
+  const beerStyles = normArr(beer_style);
+  const spiritTypes= normArr(spirit_type);
+  const accTypes   = normArr(accessory_type);
+  const accCompat  = normArr(compatible_with_product_type);
+
+  if (countries.length)  filter.push({ terms: { country: countries } });
+  if (grapes.length)     filter.push({ terms: { "wines.grape_variety": grapes } });
+  if (wineTypes.length)  filter.push({ terms: { "wines.wine_type": wineTypes } });
+  if (beerStyles.length) filter.push({ terms: { "beers.style": beerStyles } });
+  if (spiritTypes.length)filter.push({ terms: { "spirits.spirit_type": spiritTypes } });
+  if (accTypes.length)   filter.push({ terms: { "accessories.accessory_type": accTypes } });
+  if (accCompat.length)  filter.push({ terms: { "accessories.compatible_with_product_type": accCompat } });
+
+  if (inStock === "true" || inStock === true) {
+    filter.push({ range: { stock: { gt: 0 } } });
+  }
+  if (minPrice != null || maxPrice != null) {
+    const r = {};
+    if (minPrice != null && String(minPrice) !== "") r.gte = N(minPrice, 0);
+    if (maxPrice != null && String(maxPrice) !== "") r.lte = N(maxPrice, 999999);
+    filter.push({ range: { price: r } });
+  }
+  if (year != null && String(year).trim() !== "") {
+    filter.push({ term: { year: N(year, 0) } });
+  }
+
+  // sort
+  let sortClause = [{ _score: "desc" }];
+  if (sort === "price_asc")  sortClause = [{ price: "asc" }];
+  if (sort === "price_desc") sortClause = [{ price: "desc" }];
+  if (sort === "newest")     sortClause = [{ created_at: "desc" }];
+  if (sort === "popularity") sortClause = [{ popularity: "desc" }];
+
+  // aggregations — NOTE: they are computed on the *filtered* set
+  // (React keeps full option lists client-side via caching);
+  // category counts stay dynamic which you asked for.
+  const aggs = {
+    category: { terms: { field: "category", size: 20 } },
+    grape:    { terms: { field: "wines.grape_variety", size: 100 } },
+    wine_type:{ terms: { field: "wines.wine_type", size: 50 } },
+    beer_style:{ terms: { field: "beers.style", size: 50 } },
+    spirit_type:{ terms: { field: "spirits.spirit_type", size: 50 } },
+    accessory_type:{ terms: { field: "accessories.accessory_type", size: 50 } },
+    compatible_with_product_type:{ terms: { field: "accessories.compatible_with_product_type", size: 10 } },
+
+    // country split by category (for the three drink categories)
+    country_wine:    { terms: { field: "country", size: 100 } },
+    country_spirits: { terms: { field: "country", size: 100 } },
+    country_beer:    { terms: { field: "country", size: 100 } },
+  };
+
+  // We’ll post-filter per category for country_* using a filter agg,
+  // it keeps counts relevant without losing other categories.
+  const rootQuery = {
+    bool: {
+      must,
+      filter,
+    }
+  };
+
+  return {
+    from,
+    size: sizeNum,
+    track_total_hits: true,
+    query: rootQuery,
+    sort: sortClause,
+    aggs: {
+      ...aggs,
+      country_wine: {
+        filter: { term: { category: "wine" } },
+        aggs:   { buckets: { terms: { field: "country", size: 100 } } }
+      },
+      country_spirits: {
+        filter: { term: { category: "spirits" } },
+        aggs:   { buckets: { terms: { field: "country", size: 100 } } }
+      },
+      country_beer: {
+        filter: { term: { category: "beer" } },
+        aggs:   { buckets: { terms: { field: "country", size: 100 } } }
+      },
+    }
+  };
+}
+
+export async function search(req, res) {
+  try {
+    const body = buildQuery(req);
+    const r = await es.search({ index: "products", body });
+
+    const items = (r.hits?.hits || []).map(h => ({ _id: h._id, ...h._source }));
+    const total = r.hits?.total?.value ?? items.length;
+
+    const a = r.aggregations || {};
+    const facets = {
+      category: (a.category?.buckets || []).map(b => ({ key: b.key, doc_count: b.doc_count })),
+      grape: (a.grape?.buckets || []).map(b => ({ key: b.key, doc_count: b.doc_count })),
+      wine_type: (a.wine_type?.buckets || []).map(b => ({ key: b.key, doc_count: b.doc_count })),
+      beer_style: (a.beer_style?.buckets || []).map(b => ({ key: b.key, doc_count: b.doc_count })),
+      spirit_type: (a.spirit_type?.buckets || []).map(b => ({ key: b.key, doc_count: b.doc_count })),
+      accessory_type: (a.accessory_type?.buckets || []).map(b => ({ key: b.key, doc_count: b.doc_count })),
+      compatible_with_product_type: (a.compatible_with_product_type?.buckets || []).map(b => ({ key: b.key, doc_count: b.doc_count })),
+
+      // pull inner agg buckets we defined above
+      country_wine: (a.country_wine?.buckets?.buckets || []).map(b => ({ key: b.key, doc_count: b.doc_count })),
+      country_spirits: (a.country_spirits?.buckets?.buckets || []).map(b => ({ key: b.key, doc_count: b.doc_count })),
+      country_beer: (a.country_beer?.buckets?.buckets || []).map(b => ({ key: b.key, doc_count: b.doc_count })),
+    };
+
+    res.json({ total, items, facets, aggregations: r.aggregations });
   } catch (err) {
-    next(err);
+    console.error("[search] error", err?.meta?.body || err);
+    res.status(500).json({ error: "Search failed" });
   }
 }
 
-/**
- GET /search/autocomplete
- Query params: q, size (default 8)
- Returning id, name, slug, main image if exists.
- */
-export async function autocomplete(req, res, next) {
+export async function autocomplete(req, res) {
   try {
-    const { q = '', size = 8 } = req.query;
-    const term = String(q).trim();
-    if (!term) return res.json({ items: [] });
+    const q = String(req.query.q || "").trim();
+    const size = N(req.query.size, 8);
 
-    const termNoDiac = term.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-    const hasDiacritics = term && termNoDiac !== term;
+    if (!q) return res.json({ items: [] });
 
-    const should = [
-      // name.auto (edge_ngram) – prefix-friendly (analyzed with asciifolding)
-      { match: { 'name.auto': { query: term, operator: 'and', _name: 'name_auto' } } },
-      // prefix on name (for phrases with spaces)
-      { match_phrase_prefix: { name: { query: term, _name: 'name_prefix' } } },
-      // keyword fields – prefix via wildcard
-      { wildcard: { 'wines.grape_variety': { value: `${term}*`, case_insensitive: true, _name: 'grape_variety' } } },
-      { wildcard: { country:               { value: `${term}*`, case_insensitive: true, _name: 'country' } } },
-      { wildcard: { region:                { value: `${term}*`, case_insensitive: true, _name: 'region' } } },
-      // text field – prefix tolerant
-      { match_phrase_prefix: { 'features.value': { query: term, _name: 'feature_prefix' } } }
-    ];
-
-    // fallbaack diacritics - ascii on wildcards for keywords
-    if (hasDiacritics) {
-      should.push(
-        { wildcard: { 'wines.grape_variety': { value: `${termNoDiac}*`, case_insensitive: true, _name: 'grape_variety_ascii' } } },
-        { wildcard: { country:               { value: `${termNoDiac}*`, case_insensitive: true, _name: 'country_ascii' } } },
-        { wildcard: { region:                { value: `${termNoDiac}*`, case_insensitive: true, _name: 'region_ascii' } } },
-        { match: { 'name.auto': { query: termNoDiac, operator: 'and', _name: 'name_auto_ascii' } } },
-        { match_phrase_prefix: { name: { query: termNoDiac, _name: 'name_prefix_ascii' } } }
-      );
-    }
-
-    const body = {
-      size: Number(size),
-      _source: ['id','name','slug','images'],
-      query: { bool: { should, minimum_should_match: 1 } }
-    };
-
-    const resp = await es.search({ index: INDEX_ALIAS, body });
-    const items = (resp.hits.hits || []).map(h => {
-      const src = h._source;
-      const mainImage = Array.isArray(src.images)
-        ? (src.images.find(i => i.is_main) || src.images[0] || null)
-        : null;
-      return {
-        id: src.id,
-        name: src.name,
-        slug: src.slug,
-        image: mainImage?.url || null,
-        matchedOn: h.matched_queries || []
-      };
+    const r = await es.search({
+      index: "products",
+      body: {
+        size,
+        _source: ["id", "name", "slug", "category"],
+        query: {
+          multi_match: {
+            query: q,
+            fields: ["name^3", "grape^2", "country^2", "search_blob"],
+            type: "best_fields",
+          }
+        }
+      }
     });
 
-    return res.json({ items });
+    const items = (r.hits?.hits || []).map(h => h._source);
+    res.json({ items });
   } catch (err) {
-    next(err);
+    console.error("[autocomplete] error", err?.meta?.body || err);
+    res.status(500).json({ error: "Autocomplete failed" });
   }
 }
