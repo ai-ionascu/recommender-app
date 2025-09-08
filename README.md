@@ -7,7 +7,7 @@ Acesta este microserviciul **Product Service** din cadrul aplicatiei. Gestioneaz
 Versiunea actuala include:
 
 - Un backend REST complet functional pentru gestiunea produselor, cu:
-  - operatii CRUD complete cu validare pe baackend
+  - operatii CRUD complete cu validare pe backend
   - validare avansata si generare automata de `slug` unic
   - cautare imagini prin APIs Unsplash si Pexels
   - incarcare imagini cu Cloudinary, selectie `is_main` pentru imagini, validari stricte
@@ -18,13 +18,13 @@ Versiunea actuala include:
 Versiunea actuala include un framework basic pentru dashboard Admin si este in curs de extindere:
 
 - Listare produse, creare, editare, stergere
-  - Formular dinamic create/edit cu câmpuri specifice categoriei
-  - Upload imagini cu preview, înlocuire, stergere, alegere imagine principala
+  - Formular dinamic create/edit cu campuri specifice categoriei
+  - Upload imagini cu preview, inlocuire, stergere, alegere imagine principala
   - Resetare completa a starii formularului si inputurilor dupa submit sau cancel
 
 ## Microservices — Order Service
 
-Microserviciul **Order Service** gestioneaza coșurile de cumpărături, comenzile și plățile, cu stocare în **MongoDB**, procesare plăți prin **Stripe** și integrare prin **RabbitMQ** cu celelalte microservicii.
+Microserviciul **Order Service** gestioneaza cosurile de cumparaturi, comenzile si platile, cu stocare in **MongoDB**, procesare plati prin **Stripe** si integrare prin **RabbitMQ** cu celelalte microservicii.
 
 Versiunea actuala include:
 
@@ -74,25 +74,25 @@ Versiunea actuala include:
   - Logout (stergere token pe client)
 
 - **Verificare email**
-  - Generare token unic si stocare în `email_verification_tokens`
+  - Generare token unic si stocare in `email_verification_tokens`
   - Trimitere link de verificare pe email (Gmail OAuth2)
   - Endpoint `/auth/verify` pentru validarea tokenului si marcarea utilizatorului ca `is_verified`
   - Cleanup automat al tokenurilor expirate si stergere useri neverificati dupa 1h
 
 - **Resetare parola**
-  - Solicitare resetare (token în `password_reset_tokens`, valabil 1h)
+  - Solicitare resetare (token in `password_reset_tokens`, valabil 1h)
   - Link de resetare trimis pe email
   - Resetare parola DOAR pentru utilizatori autentificati si cu verificarea parolei curente
 
 - **Schimbare email**
-  - Solicitare schimbare (token în `email_change_tokens`, valabil 1h)
+  - Solicitare schimbare (token in `email_change_tokens`, valabil 1h)
   - Confirmare schimbare email prin link trimis pe noua adresa
-  - Validare si actualizare email în DB
+  - Validare si actualizare email in DB
 
 - **Securitate**
   - Parole hash-uite cu bcrypt
   - Rate limiting si verificare reCAPTCHA (Google) pe rute sensibile
-  - JWT configurabil (secret si expirare în `.env`)
+  - JWT configurabil (secret si expirare in `.env`)
 
 - **Joburi automate**
   - Cronjob pentru curatare tokenuri expirate (email verification, password reset, email change)
@@ -100,26 +100,26 @@ Versiunea actuala include:
 
 ## Microservices — Search (Elasticsearch & Kibana)
 
-Integrarea **Elasticsearch** oferă funcționalități avansate de căutare full-text, autocomplete și filtrare prin **facets**.  
-**Kibana** este inclus pentru debugging și analiză, disponibil pe portul `5601`.
+Integrarea **Elasticsearch** ofera functionalitati avansate de cautare full-text, autocomplete si filtrare prin **facets**.  
+**Kibana** este inclus pentru debugging si analiza, disponibil pe portul `5601`.
 
-### Versiunea actuală include:
+### Versiunea actuala include:
 
-- **Indexare automată**
-  - La creare/actualizare produs în `product-service`, documentul este indexat în Elasticsearch
-  - La ștergere produs, documentul este eliminat și din index
+- **Indexare automata**
+  - La creare/actualizare produs in `product-service`, documentul este indexat in Elasticsearch
+  - La stergere produs, documentul este eliminat si din index
 
 - **Mapping & Analyzers**
   - `text_ro_en` cu stopwords (RO+EN), stemming, synonyms, asciifolding
   - `autocomplete` bazat pe `edge_ngram` pentru sugestii rapide
-  - Suport pentru căutare tolerantă la diacritice și fuzzy matching
+  - Suport pentru cautare toleranta la diacritice si fuzzy matching
 
 - **Facets & Boosting**
   - Facets pe `country`, `grape`, `price` (intervale dinamice)
-  - Boost pentru produse `featured`, recență (`sales_30d`) și recenzii pozitive
+  - Boost pentru produse `featured`, recenta (`sales_30d`) si recenzii pozitive
 
 - **Kibana**
-  - Interfață web la [http://localhost:5601](http://localhost:5601) pentru interogări, analiză date și debugging
+  - Interfata web la [http://localhost:5601](http://localhost:5601) pentru interogari, analiza date si debugging
 
 ---
 
@@ -143,7 +143,7 @@ wine_store/
 │   ├── es-bootstrap.sh                 # bootstrap ES + backfill la startup
 │   ├── scripts/
 │   │   └── es/
-│   │       ├── initProductsIndex.js    # creează index/alias
+│   │       ├── initProductsIndex.js    # creeaza index/alias
 │   │       ├── backfillProductsToEs.js # reindexare din Postgres
 │   │       └── products.mapping.json   # mapping + analyzers
 │   ├── src/
@@ -291,8 +291,8 @@ wine_store/
      ```
   - **Pornire bootstrap Elasticsearch**
     ```bash
-    - es-bootstrap.sh → verifică conexiunile la Postgres și ES
-    - rulează initProductsIndex.js și backfillProductsToEs.js dacă indexul e gol
+    - es-bootstrap.sh → verifica conexiunile la Postgres si ES
+    - ruleaza initProductsIndex.js si backfillProductsToEs.js daca indexul e gol
     ```
 
 4. **Migratii** (daca adaugi altele) se ruleaza automat la startup prin `runMigration()` in `app.js`.
@@ -370,7 +370,7 @@ docker compose up -d auth-service
 
 | Metoda | Path                          | Descriere |
 | ------ | ----------------------------- | --------- |
-| POST   | `/auth/signup`                | Înregistrare utilizator + email verification |
+| POST   | `/auth/signup`                | inregistrare utilizator + email verification |
 | POST   | `/auth/login`                  | Login cu JWT |
 | GET    | `/auth/profile`                | Obtine profilul utilizatorului autentificat |
 | GET    | `/auth/admin/panel`            | Endpoint protejat pentru admin |
@@ -402,7 +402,7 @@ docker compose up -d auth-service
 
 | Metoda | Path                            | Descriere                                |
 | ------ | ------------------------------- | ---------------------------------------- |
-| GET    | `/search?q=text&size=5`         | Căutare full-text cu facets și highlight |
+| GET    | `/search?q=text&size=5`         | Cautare full-text cu facets si highlight |
 | GET    | `/search/autocomplete?q=prefix` | Sugestii rapide bazate pe edge-ngram     |
 
 ---
@@ -550,7 +550,7 @@ npm run es:backfill
 
 ### Auth Service
 
-- Migratiile ruleaza automat la pornire (runMigration() în app.js)
+- Migratiile ruleaza automat la pornire (runMigration() in app.js)
 
 - Seed-ul pentru utilizatori default (admin@example.com, user@example.com) ruleaza tot la pornire
 
@@ -558,7 +558,7 @@ npm run es:backfill
 
 ## Next Steps
 
-**auth-service** – finisaje și îmbunatatiri:
+**auth-service** – finisaje si imbunatatiri:
    - Adaugare audit log minimal (login, schimbare parola, schimbare email)
    - Documentatie Swagger pentru API
    - Rate limiting pe endpoint-uri sensibile (signup/login/reset-password)
@@ -595,3 +595,107 @@ npm run es:backfill
 - Monitorizare si logare centralizata (Prometheus, Grafana, ELK)
 - Documentatie OpenAPI: src/docs/openapi.yaml → Swagger UI.
 - Teste automate: Jest/Supertest.
+
+---
+
+# 6. Search Service (Elasticsearch & Kibana)
+
+Search Service ofera functionalitati de cautare avansata full-text si autocomplete prin Elasticsearch.
+Integrarea este realizata cu indexul `products`, cu alias `products`, actualizat automat din Product Service.
+
+### Functionalitati
+- Indexare automata la CRUD produs in Product Service
+- Mapping `text_ro_en` (stopwords RO/EN, stemming, synonyms, asciifolding)
+- Autocomplete cu `edge_ngram`
+- Fuzzy search + suport pentru diacritice
+- Facets pe `country`, `grape`, `price`
+- Boosting: produse `featured`, scor pe baza `sales_30d`, rating recenzii
+- Integrare Kibana pentru debugging (port 5601)
+
+### Exemple cURL
+```bash
+# Cautare text liber
+curl -X GET "http://localhost:9200/products/_search?q=merlot&pretty"
+
+# Autocomplete
+curl -X GET "http://localhost:3000/search/autocomplete?q=fran" | jq
+
+# Cautare cu filtre
+curl -X POST "http://localhost:3000/search" -H "Content-Type: application/json" -d '{
+  "q": "cabernet",
+  "filters": { "country": ["FR"], "price": { "lte": 50 } }
+}'
+```
+
+---
+
+# 7. Recommender Service
+
+Recommender Service este un façade subtire care expune endpointuri pentru recomandari, delegand logica catre Product Service si Order Service.
+
+### Functionalitati
+- **Content-based recommendations** prin Elasticsearch MLT
+- **Fallback**: daca nu exista rezultate similare → top produse din aceeasi categorie
+- **Frequently Bought Together (FBT)** bazat pe agregari in Order Service (comenzi `paid`)
+
+### API Endpoints
+- `GET /reco/similar/:productId` → Produse similare
+- `GET /reco/fbt/:productId` → Produse frecvent cumparate impreuna
+
+### Exemple cURL
+```bash
+# Recomandari similare (direct Product Service)
+curl -s "http://localhost:3000/reco/similar/1?limit=5" | jq
+
+# Recomandari similare (prin Recommender Service)
+curl -s "http://localhost:3010/reco/similar/1?limit=5" | jq
+
+# FBT
+curl -s "http://localhost:3000/reco/fbt/1?limit=5" | jq
+curl -s "http://localhost:3010/reco/fbt/1?limit=5" | jq
+```
+
+---
+
+# 8. Analytics Service (in dezvoltare)
+
+Serviciu dedicat pentru colectarea si agregarea de metrici pentru dashboardul de administrare.
+
+### Functionalitati planificate
+- Colectare evenimente (RabbitMQ) → `order.paid`, `product.view`, `cart.added`
+- Stocare in `analytics_db` (PostgreSQL)
+- Endpointuri API pentru:
+  - vanzari pe categorii si tari
+  - evolutie zilnica/lunara
+  - top produse
+  - clienti activi
+- Integrare frontend cu Recharts pentru grafice interactive
+
+### Exemple cURL
+```bash
+# Vanzari pe categorii
+curl -X GET "http://localhost:4002/analytics/sales-by-category"
+
+# Evolutie zilnica
+curl -X GET "http://localhost:4002/analytics/sales-daily?from=2024-01-01&to=2024-01-31"
+```
+
+---
+
+# Actualizari servicii existente
+
+## Auth Service
+- Adaugat cronjob cleanup tokenuri expirate (`email_verification_tokens`, `password_reset_tokens`, `email_change_tokens`)
+- Integrare reCAPTCHA pe rute sensibile
+- Gmail OAuth2 pentru trimitere emailuri
+- Endpoints noi: `PUT /auth/change-password`, `PUT /auth/change-email`
+
+## Order Service
+- Adaugat camp `userEmail` in modelul Order
+- Paginare reala la `GET /orders`
+- Endpoint intern `/internal/copurchase/:productId` pentru reco FBT
+
+## Frontend
+- Pagini noi: Orders, OrderDetails, About, Contact
+- Integrare Stripe Elements pentru checkout
+- Recomandari integrate in ProductPage (similar) si Cart/Checkout (FBT)

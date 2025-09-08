@@ -22,6 +22,9 @@ import { waitForElasticsearch } from './search/esClient.js';
 // RabbitMQ consumer for stock adjustment on order.paid
 import { startOrderPaidConsumer } from './consumers/orderPaid.consumer.js';
 
+// recommender system
+import recoRoutes from './search/reco.routes.js';
+
 const app = express();
 app.use(express.json());
 app.use(cors({
@@ -77,6 +80,9 @@ app.use('/products/images', mediaRoutes);
 // mount search routes
 app.use('/search', searchHeaders, searchRouter);
 app.use('/api/search', searchHeaders, searchRouter);
+
+// recommender system
+app.use(recoRoutes);
 
 // error handler
 app.use(errorHandler);

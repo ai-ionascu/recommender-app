@@ -151,6 +151,27 @@ services:
         timeout: 5s
         retries: 10
 
+  recommender-service:
+      build:
+        context: ./recommender-service
+        dockerfile: Dockerfile
+      container_name: recommender-service
+      environment:
+        - PORT=3010
+        - PRODUCT_BASE_URL=http://product-service:3000
+      depends_on:
+        product-service:
+          condition: service_healthy
+      ports:
+        - "3010:3010"
+      networks:
+        - wine-store-network
+      healthcheck:
+        test: ["CMD-SHELL", "wget -qO- http://localhost:3010/health >/dev/null 2>&1"]
+        interval: 10s
+        timeout: 5s
+        retries: 10
+
 volumes:
   postgres_data:
   mongodb_data:
