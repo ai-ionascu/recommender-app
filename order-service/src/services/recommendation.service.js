@@ -13,14 +13,21 @@ function toNumber(n) {
  * - score = sum(qty), tie-breaker coCount
  */
 export const RecommendationService = {
-  async getCoPurchase(productId, { limit = 8 } = {}) {
-    const pid = toNumber(productId);
-    if (pid == null) throw new AppError('Invalid productId', 400);
+   async getCoPurchase(productId, { limit = 8 } = {}) {
+     const pidNum = toNumber(productId);
+     if (pidNum == null) throw new AppError('Invalid productId', 400);
+     const pidStr = String(pidNum);
 
     const pipeline = [
-      { $match: { status: 'paid', 'items.productId': pid } },
+      { $match: { status: 'paid', $or: [
+          { 'items.productId': pidNum },  // number
+          { 'items.productId': pidStr }   // string
+        ]}},
       { $unwind: '$items' },
-      { $match: { 'items.productId': { $ne: pid } } },
+      { $match: { $and: [
+        { 'items.productId': { $ne: pidNum } },
+        { 'items.productId': { $ne: pidStr } }
+      ]}},
       {
         $group: {
           _id: '$items.productId',

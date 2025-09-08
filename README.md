@@ -657,7 +657,7 @@ curl -s "http://localhost:3010/reco/fbt/1?limit=5" | jq
 
 ---
 
-# 8. Analytics Service (in dezvoltare)
+# 8. Analytics Service
 
 Serviciu dedicat pentru colectarea si agregarea de metrici pentru dashboardul de administrare.
 
@@ -681,21 +681,3 @@ curl -X GET "http://localhost:4002/analytics/sales-daily?from=2024-01-01&to=2024
 ```
 
 ---
-
-# Actualizari servicii existente
-
-## Auth Service
-- Adaugat cronjob cleanup tokenuri expirate (`email_verification_tokens`, `password_reset_tokens`, `email_change_tokens`)
-- Integrare reCAPTCHA pe rute sensibile
-- Gmail OAuth2 pentru trimitere emailuri
-- Endpoints noi: `PUT /auth/change-password`, `PUT /auth/change-email`
-
-## Order Service
-- Adaugat camp `userEmail` in modelul Order
-- Paginare reala la `GET /orders`
-- Endpoint intern `/internal/copurchase/:productId` pentru reco FBT
-
-## Frontend
-- Pagini noi: Orders, OrderDetails, About, Contact
-- Integrare Stripe Elements pentru checkout
-- Recomandari integrate in ProductPage (similar) si Cart/Checkout (FBT)

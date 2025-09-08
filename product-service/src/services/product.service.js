@@ -7,6 +7,7 @@ import { ImageService } from '../services/image.service.js';
 import { FeatureService } from '../services/feature.service.js';
 
 import { es, INDEX_ALIAS } from '../search/esClient.js';
+import { ReviewRepository } from '../repositories/review.repository.js';
 
 async function indexProductById(id, fallbackDoc = null) {
   // try to index the enriched doc (images/features/details)
@@ -58,12 +59,13 @@ export const ProductService = {
   async getProducts(filters) {
     const list = await ProductRepository.getAllProducts(filters);
     return Promise.all(list.map(async (p) => {
-      const [images, features, details] = await Promise.all([
+      const [images, features, details, reviews] = await Promise.all([
         ImageService.list(p.id),
         FeatureService.list(p.id),
-        SubtypeRepository.getSubtype(p.id, p.category)
+        SubtypeRepository.getSubtype(p.id, p.category),
+        ReviewRepository.getReviews(p.id).catch(() => [])
       ]);
-      return { ...p, images, features, details, reviews: [] };
+      return { ...p, images, features, details, reviews };
     }));
   },
 
@@ -71,12 +73,13 @@ export const ProductService = {
     const product = await ProductRepository.getProductByIdPool(id);
     if (!product) throw new AppError('Product not found', 404);
 
-    const [images, features, details] = await Promise.all([
+    const [images, features, details, reviews] = await Promise.all([
       ImageService.list(product.id),
       FeatureService.list(product.id),
-      SubtypeRepository.getSubtype(product.id, product.category)
+      SubtypeRepository.getSubtype(product.id, product.category),
+      ReviewRepository.getReviews(product.id).catch(() => [])
     ]);
-    return { ...product, images, features, details, reviews: [] };
+    return { ...product, images, features, details, reviews };
   },
 
   async updateProduct(id, payload) {

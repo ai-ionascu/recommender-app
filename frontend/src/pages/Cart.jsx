@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import { useCartStore } from "@/store/cartStore";
 import { Link, useNavigate } from "react-router-dom";
 import { checkout } from "@/api/orders";
+import FbtStrip from "@/components/reco/FbtStrip";
 
 export default function Cart() {
   const items      = useCartStore(s => s.items);
@@ -13,10 +14,10 @@ export default function Cart() {
   const total = useCartStore(
      s => s.items.reduce(
        (sum, it) => sum + Number(it.product?.price ?? 0) * Number(it.qty ?? 0),
-       0
-     )
-   );
+     0)
+  );
 
+  const [showMovedToCheckoutNotice, setShowMovedToCheckoutNotice] = useState(false);
   const [qtyDraft, setQtyDraft] = useState({});
   const [ckLoading, setCkLoading] = useState(false);
   const [ckError, setCkError] = useState(null);
@@ -47,14 +48,6 @@ export default function Cart() {
     // where the user fills shipping and THEN we call POST /api/orders/checkout.
     navigate("/checkout");
   };
-
-  // Helper: show warning if user is logged-in but client items have no serverItemId
-  const showMovedToCheckoutNotice = useMemo(() => {
-    const token = localStorage.getItem("token");
-    if (!token) return false;
-    
-    return (items || []).some(it => !it.serverItemId);
-  }, [items]);
 
   if (!items.length) {
     return (
@@ -118,6 +111,15 @@ export default function Cart() {
           );
         })}
       </ul>
+
+      {/* Frequently Bought Together */}
+      <FbtStrip
+        productIds={items.map(i => i.productId)}
+        limit={8}
+        title="Frequently bought together"
+        showEmpty={true}
+        nameById={(id) => items.find(it => Number(it.productId) === Number(id))?.product?.name || null}
+      />
 
       <div className="flex items-center justify-between mt-6">
         <div className="text-lg">

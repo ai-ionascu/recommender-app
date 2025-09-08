@@ -33,7 +33,7 @@ export const OrderService = {
 
     // Shape order items (we keep name/image optional; schema does not require them)
     const orderItems = (cart.items || []).map(it => ({
-      productId: String(it.productId),
+      productId: Number(it.productId),
       name: it.name || '',          // optional
       image: it.image || '',        // optional
       price: toNumber(it.priceSnapshot) ?? 0,

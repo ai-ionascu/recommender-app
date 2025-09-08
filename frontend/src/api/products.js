@@ -1,4 +1,4 @@
-import { http } from "@/api/http";
+import { http, ordersHttp } from "@/api/http";
 
 // Basic products client (public endpoints)
 export async function getProducts({ page = 1, limit = 8 } = {}) {
@@ -38,5 +38,31 @@ export async function updateProduct(id, payload) {
 
 export async function deleteProduct(id) {
   const { data } = await http.delete(`/products/${id}`);
+  return data;
+}
+
+export async function getProductReviews(id) {
+  const { data } = await http.get(`/products/${id}/reviews`);
+  // server poate returna {items:[]} sau []
+  return Array.isArray(data) ? data : data?.items ?? [];
+}
+
+// UI gating (client-side). Serverul trebuie să verifice din nou la POST.
+export async function canUserReview(productId) {
+  try {
+    const { data } = await ordersHttp.get("", { params: { status: "paid", limit: 50 } });
+    const items = Array.isArray(data?.items) ? data.items : [];
+    const found = items.some((o) =>
+      Array.isArray(o?.items) && o.items.some((it) => String(it.productId) === String(productId))
+    );
+    return found;
+  } catch {
+    return false;
+  }
+}
+
+export async function addProductReview(productId, payload) {
+  // payload: { rating, comment }
+  const { data } = await http.post(`/products/${productId}/reviews`, payload);
   return data;
 }

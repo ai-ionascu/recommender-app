@@ -7,6 +7,7 @@ import mongoose from 'mongoose';
 import { getChannel } from './config/rabbit.js';
 import { PaymentController } from './controllers/payment.controller.js';
 import recoRoutes from './routes/recommendation.routes.js';
+import analyticsRoutes from './routes/analytics.routes.js';
 
 const app = express();
 
@@ -32,6 +33,9 @@ app.get('/ready', async (_req, res) => {
 app.use('/cart', requireAuth, cartRoutes);
 app.use('/orders', requireAuth, orderRoutes);
 app.use(recoRoutes);
+app.use('/analytics', requireAuth, analyticsRoutes);
+app.use('/orders/analytics', requireAuth, analyticsRoutes);
+app.use('/api/orders/analytics', requireAuth, analyticsRoutes);
 
 app.use((_req, _res, next) => next(new AppError('Not Found', 404)));
 app.use((err, _req, res, _next) => {

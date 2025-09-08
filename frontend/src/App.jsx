@@ -32,6 +32,7 @@ import ShippingReturns from "@/pages/ShippingReturns";
 import Privacy from "@/pages/Privacy";
 import Terms from "@/pages/Terms";
 import NotFound from "@/pages/NotFound";
+import AdminAnalytics from "@/pages/AdminAnalytics";
 
 export default function App() {
   return (
@@ -73,6 +74,7 @@ export default function App() {
             <Route index element={<AdminDashboard />} />
             <Route path="products" element={<AdminDashboard />} />
             <Route path="users" element={<UsersPanel />} />
+            <Route path="/admin/analytics" element={<AdminAnalytics />} />
           </Route>
         </Route>
 

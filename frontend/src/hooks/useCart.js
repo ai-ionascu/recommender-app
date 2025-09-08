@@ -16,7 +16,7 @@ export function useCart() {
   // Select only what<s needed, not the whole object
   const setFromServer = useCartStore((s) => s.setFromServer);
   const items = useCartStore((s) => s.items);
-  const total = useCartStore((s) => s.total());
+  const total = useCartStore((s) => s.total);
 
   const [loading, setLoading] = useState(!!token);
   const [error, setError]     = useState(null);

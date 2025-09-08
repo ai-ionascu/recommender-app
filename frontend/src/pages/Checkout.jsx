@@ -4,8 +4,9 @@ import { ensurePaymentIntent, getOrder, checkout as checkoutOrder } from "@/api/
 import { loadStripe } from "@stripe/stripe-js";
 import { Elements, CardElement, useStripe, useElements } from "@stripe/react-stripe-js";
 import { useCartStore } from "@/store/cartStore";
+import FbtStrip from "@/components/reco/FbtStrip";
 
-// mici utilitare de bani
+// amount parsing tools
 function parseMinorFromAny(v) {
   if (v == null) return null;
   if (typeof v === "number" && Number.isFinite(v)) {
@@ -69,7 +70,7 @@ async function waitForPaid(orderId, { tries = 12, delay = 900 } = {}) {
 
 const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY);
 
-/** Stripe payment form (confirmă doar clientSecret-ul primit) */
+/** Stripe payment form */
 function PaymentForm({ clientSecret, onProcessingChange, onSuccess, onError, disabled }) {
   const stripe = useStripe();
   const elements = useElements();
@@ -134,7 +135,6 @@ function PaymentForm({ clientSecret, onProcessingChange, onSuccess, onError, dis
   );
 }
 
-/** Cartolină read-only cu adresa de livrare */
 function ReadonlyShippingCard({ shipping, onEdit }) {
   if (!shipping) return null;
   const rows = [
@@ -168,7 +168,6 @@ function ReadonlyShippingCard({ shipping, onEdit }) {
   );
 }
 
-/** Rezumatul de „Success” mai aspectuos */
 function SuccessSummary({ order, shipping }) {
   return (
     <div className="bg-white rounded-2xl shadow p-6 space-y-4">
@@ -212,8 +211,7 @@ export default function Checkout() {
   const [intentId, setIntentId] = useState(null);
   const [isProcessing, setIsProcessing] = useState(false);
 
-  // shipping local (folosit la creare comandă, dar și ca fallback pentru afișare)
-  const [shipping, setShipping] = useState({
+    const [shipping, setShipping] = useState({
     name: "",
     phone: "",
     address1: "",
@@ -226,8 +224,8 @@ export default function Checkout() {
 
   const createdOnceRef = useRef(false);
   const displayStatus = order?.status ?? status;
+  const ids = useCartStore((s) => s.items.map(i => i.productId));
 
-  // 1) Dacă avem orderId în URL → citim comanda și ne asigurăm de PaymentIntent
   useEffect(() => {
     if (!orderId) return;
     let ignore = false;
@@ -284,7 +282,6 @@ export default function Checkout() {
     return () => { ignore = true; };
   }, [orderId]);
 
-  // 2) Nu avem încă orderId → creăm comanda din cart, trimițând adresa
   const handleCreateOrderWithShipping = async (e) => {
     e.preventDefault();
     setError(null);
@@ -326,7 +323,6 @@ export default function Checkout() {
     setShipping(s => ({ ...s, [name]: value }));
   };
 
-  // 3) După confirmarea Stripe → nu setăm local „paid” decât după ce serverul raportează asta
   const handlePaid = async () => {
     try {
       setStatus("finalizing");
@@ -359,12 +355,33 @@ export default function Checkout() {
     </div>
   );
 
-  // sursa de adevăr pt afișarea adresei pe Payment: server > local fallback
   const shippingForDisplay = order?.shipping || shipping;
+
+  // FBT anchors: prefer order items if present, otherwise cart items
+  const cartItemsForNames = useCartStore((s) => s.items);
+  const fbtAnchorIds =
+    (order?.items?.map(it => Number(it.productId))) ??
+    cartItemsForNames.map(i => i.productId);
+
+  const resolveName = (id) =>
+    (order?.items?.find(it => Number(it.productId) === Number(id))?.name) ??
+    (cartItemsForNames.find(it => Number(it.productId) === Number(id))?.product?.name) ??
+    null;
 
   return (
     <div className="p-6 max-w-3xl mx-auto">
       <h1 className="text-2xl font-bold mb-4">Checkout</h1>
+
+      {/* Frequently Bought Together */}
+      <FbtStrip
+        productIds={fbtAnchorIds}
+        limit={6}
+        title="Frequently bought together"
+        showEmpty={true}
+        nameById={resolveName}
+        /* (optional) custom phrasing:
+        titleWhenAnchored={(n) => `Customers who bought ${n} also bought`} */
+      />
 
       {error && <div className="mb-3 bg-red-100 text-red-700 p-2 rounded">{error}</div>}
 
@@ -379,7 +396,7 @@ export default function Checkout() {
           </div>
         )}
 
-        {/* STEP 1: shipping form (când NU există orderId) */}
+        {/* shipping form */}
         {!orderId && (
           <form onSubmit={handleCreateOrderWithShipping} className="space-y-3 mt-2">
             <h2 className="text-lg font-semibold">Shipping address</h2>
@@ -430,13 +447,12 @@ export default function Checkout() {
           </form>
         )}
 
-        {/* STEP 2: PAYMENT – când avem clientSecret */}
+        {/* payment – with clientSecret */}
         {clientSecret && displayStatus !== "paid" && (
           <>
-            {/* cartolină cu adresa + butonul de edit */}
             <ReadonlyShippingCard
               shipping={shippingForDisplay}
-              onEdit={() => navigate("/checkout")} // revenire la pasul de shipping
+              onEdit={() => navigate("/checkout")}
             />
 
             <div className="mt-3">
@@ -465,7 +481,7 @@ export default function Checkout() {
           </>
         )}
 
-        {/* STEP 3: SUCCESS (confirmare) */}
+        {/* success */}
         {displayStatus === "paid" && (
           <div className="mt-4">
             <SuccessSummary order={order} shipping={order?.shipping || shipping} />

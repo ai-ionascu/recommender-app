@@ -29,7 +29,7 @@ export function setAuthToken(token) {
 setAuthToken(localStorage.getItem("token") || null);
 
 // 401 - erase local token (the store is handling the cart)
-[authHttp, ordersHttp, cartHttp].forEach((inst) => {
+[authHttp, ordersHttp, cartHttp, http].forEach((inst) => {
   inst.interceptors.response.use(
     (r) => r,
     (err) => {

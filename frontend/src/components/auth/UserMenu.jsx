@@ -25,6 +25,7 @@ export default function UserMenu() {
           <Link to="/profile" className="block px-3 py-2 text-sm hover:bg-zinc-50">Profile</Link>
           <Link to="/orders" className="block px-3 py-2 text-sm hover:bg-zinc-50">Orders</Link>
           {isAdmin && <Link to="/admin" className="block px-3 py-2 text-sm hover:bg-zinc-50">Admin</Link>}
+          {isAdmin && <Link to="/admin/analytics" className="block px-3 py-2 text-sm hover:bg-zinc-50">Analytics</Link>}
           <button onClick={logout} className="block w-full text-left px-3 py-2 text-sm hover:bg-zinc-50">Logout</button>
         </div>
       )}
